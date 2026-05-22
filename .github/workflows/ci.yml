@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    name: lint-test-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Go mod download
+        run: go mod download
+
+      - name: Setup golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          install-mode: "binary"
+          install-only: true
+
+      - name: Run lint
+        run: make ci-lint
+
+      #- name: Run test
+      #  run: make test
+
+      - name: Run test and output code coverage
+        run: make cover OUT=coverage.out HTML=false
+
+      - name: Upload Coverage report to CodeCov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.out
+          config: .github/codecov.yml
+          token: ${{secrets.CODECOV_TOKEN}}
+
+      - name: Build
+        run: make build

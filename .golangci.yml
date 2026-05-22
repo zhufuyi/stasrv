@@ -1,0 +1,187 @@
+version: "2"
+
+linters:
+  disable:
+    - staticcheck
+  enable:
+    - revive
+    - unused
+    - dogsled
+    - errcheck
+    - goconst
+    - gocyclo
+    - govet
+    - lll
+    - misspell
+    - unconvert
+    - whitespace
+    #- staticcheck
+    - goprintffuncname
+    - copyloopvar
+
+  settings:
+    depguard:
+      rules:
+        logger:
+          deny:
+            - pkg: github.com/pkg/errors
+              desc: Should be replaced by standard lib errors package.
+
+    dupl:
+      threshold: 100
+
+    dogsled:
+      max-blank-identifiers: 2
+
+    funlen:
+      lines: -1
+      statements: 50
+
+    goconst:
+      min-len: 4
+      min-occurrences: 4
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+
+    gocyclo:
+      min-complexity: 20
+
+    godox:
+      keywords:
+        - FIXME
+
+    mnd:
+      checks:
+        - argument
+        - case
+        - condition
+        - return
+      ignored-numbers:
+        - "0"
+        - "1"
+        - "2"
+        - "3"
+      ignored-functions:
+        - strings.SplitN
+
+    govet:
+      enable:
+        - nilness
+        - shadow
+      settings:
+        printf:
+          funcs:
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+
+    errorlint:
+      asserts: false
+
+    lll:
+      line-length: 200
+
+    misspell:
+      locale: US
+
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
+
+    revive:
+      rules:
+        - name: unexported-return
+          disabled: true
+        - name: indent-error-flow
+        - name: argument-limit
+          arguments: [8]
+        - name: atomic
+        - name: bare-return
+        - name: blank-imports
+        - name: bool-literal-in-expr
+        - name: call-to-gc
+        - name: confusing-naming
+        - name: confusing-results
+        - name: constant-logical-expr
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: deep-exit
+        - name: defer
+        - name: dot-imports
+        - name: duplicated-imports
+        - name: early-return
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: function-result-limit
+          arguments: [3]
+        - name: identical-branches
+        - name: if-return
+        - name: import-shadowing
+        - name: increment-decrement
+        - name: modifies-parameter
+        - name: modifies-value-receiver
+        - name: package-comments
+        - name: range
+        - name: range-val-address
+        - name: range-val-in-closure
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: string-of-int
+        - name: struct-tag
+        - name: superfluous-else
+        - name: time-naming
+        - name: unconditional-recursion
+        - name: unexported-naming
+        - name: unnecessary-stmt
+        - name: unreachable-code
+        - name: var-declaration
+        - name: var-naming
+        - name: waitgroup-by-value
+
+  exclusions:
+    paths:
+      - ^api/
+      - ^docs/
+      - ^third_party/
+      - ^vendor/
+      - ^test/
+      - _test\.go$
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - gci
+
+  settings:
+    gofmt:
+      rewrite-rules:
+        - pattern: interface{}
+          replacement: any
+
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/zhufuyi/stasrv)
+
+run:
+  concurrency: 2
+  timeout: 5m
+  tests: false

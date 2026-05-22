@@ -1,0 +1,21 @@
+services:
+  stasrv:
+    image: zhufuyi/stasrv:latest
+    restart: unless-stopped
+    init: true
+    volumes:
+      - /etc/localtime:/etc/localtime:ro     # 宿主机时区
+      - ./dist:/app/dist:ro                        # 映射静态资源
+    command:
+      - "--dir=/app/dist"      # 网站静态资源路径
+      #- "--base-path=/"      # url 前缀，默认是/
+
+    # 使用 docker 部署 nginx 网络，无需映射端口
+    expose:
+      - 8080
+    networks:
+      - gateway-network
+
+networks:
+  gateway-network:
+    external: true
