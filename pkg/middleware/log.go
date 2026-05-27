@@ -133,15 +133,18 @@ func SlogLogger(opts ...LogOption) gin.HandlerFunc {
 		}
 		attrs := make([]slog.Attr, 0, maxAttrs)
 
+		if len(query) > 256 {
+			query = query[:256]
+		}
+
 		attrs = append(attrs,
 			slog.Int("status", status),
 			slog.String("method", c.Request.Method),
 			slog.String("path", path),
 			slog.String("query", query),
-			slog.String("ip", c.ClientIP()),
-			slog.String("user_agent", c.Request.UserAgent()),
-			slog.Float64("latency_ms", float64(latency.Nanoseconds())/1e6),
+			slog.String("client_ip", c.ClientIP()),
 			slog.Int("resp_size", c.Writer.Size()),
+			slog.Float64("latency_ms", float64(latency.Microseconds())/1000),
 		)
 
 		if len(c.Errors) > 0 {

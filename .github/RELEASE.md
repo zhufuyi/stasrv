@@ -2,6 +2,4 @@
 
 ### Release the first version
 
-- Add code.
-- Add script.
-- Add documents.
+- Optimize log middleware fields.
