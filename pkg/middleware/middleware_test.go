@@ -72,6 +72,7 @@ func TestSlogLogger(t *testing.T) {
 		l := slog.New(slog.NewJSONHandler(&buf, nil))
 		r := gin.New()
 		r.Use(SlogLogger(WithSlogLogger(l)))
+		r.Use(Cors())
 
 		r.GET("/ping", func(c *gin.Context) {
 			ctxTraceID := c.Request.Context().Value(logger.ContextTraceIDKey)
