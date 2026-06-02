@@ -114,6 +114,7 @@ func TestLocalRegister_And_Routing(t *testing.T) {
 
 	fe, err := NewLocal(dir, "/static",
 		With404ToHome(),
+		WithCacheMaxAge(86400),
 		WithHandleContent(func(content []byte) []byte {
 			return []byte(strings.ReplaceAll(string(content), "api_url", "http://localhost:8080"))
 		}, "config.js"),
@@ -125,7 +126,7 @@ func TestLocalRegister_And_Routing(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Test 1: Fetch existing file directly
-	url := "/static/" // 这里不能用/static/index.html
+	url := "/static/"
 	req, _ := http.NewRequest("GET", url, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -146,7 +147,7 @@ func TestLocalRegister_And_Routing(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestBrowserRefreshFS(t *testing.T) {
+func TestHandleNotFound(t *testing.T) {
 	// Test the browserRefreshFS middleware standalone
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
@@ -156,7 +157,7 @@ func TestBrowserRefreshFS(t *testing.T) {
 	c.Request, _ = http.NewRequest("GET", "/", nil)
 	c.Request.Header.Set("Accept", "text/html")
 
-	handler := browserRefreshFS(testEmbedFS, "testdata/index.html")
+	handler := handleNotFound("testdata/index.html", "/")
 	handler(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -169,11 +170,41 @@ func TestBrowserRefreshFS(t *testing.T) {
 	c2.Request, _ = http.NewRequest("GET", "/", nil)
 	c2.Request.Header.Set("Accept", "text/html")
 
-	handler2 := browserRefreshFS(testEmbedFS, "non_existent.html")
+	handler2 := handleNotFound("non_existent.html", "/")
 	handler2(c2)
 
 	assert.Equal(t, http.StatusNotFound, w2.Code)
-	assert.Equal(t, "Not Found", w2.Body.String())
+	assert.Equal(t, "404 not found", w2.Body.String())
+}
+
+func TestHandleNotFoundFS(t *testing.T) {
+	// Test the browserRefreshFS middleware standalone
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	// Create a fake request with Accept text/html
+	c.Request, _ = http.NewRequest("GET", "/", nil)
+	c.Request.Header.Set("Accept", "text/html")
+
+	handler := handleNotFoundFS(testEmbedFS, "testdata/index.html", "/")
+	handler(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "Hello World")
+	assert.Equal(t, "text/html; charset=utf-8", w.Header().Get("Content-Type"))
+
+	// Test fallback to 404 if file missing in embedFS
+	w2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(w2)
+	c2.Request, _ = http.NewRequest("GET", "/", nil)
+	c2.Request.Header.Set("Accept", "text/html")
+
+	handler2 := handleNotFoundFS(testEmbedFS, "non_existent.html", "/")
+	handler2(c2)
+
+	assert.Equal(t, http.StatusNotFound, w2.Code)
+	assert.Equal(t, "404 not found", w2.Body.String())
 }
 
 func TestEmbedFS_Register_WithHandleContent(t *testing.T) {

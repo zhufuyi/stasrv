@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"runtime"
 	"strconv"
 )
@@ -14,7 +15,7 @@ import (
 const (
 	defaultPort        = 8080
 	defaultBasePath    = "/"
-	defaultCacheMaxAge = 31536000 // 1 year
+	defaultCacheMaxAge = 0 // 0 means no cache
 )
 
 // Config Defines the common configuration of Web services
@@ -22,7 +23,7 @@ type Config struct {
 	Port        int
 	BasePath    string
 	StaticDir   string
-	CacheMaxAge *int
+	CacheMaxAge int
 
 	ShowVersion   bool
 	EnableJSONLog bool
@@ -38,8 +39,8 @@ func Load() (*Config, error) {
 	flag.IntVar(&cfg.Port, "port", 0, "Server listen port")
 	flag.StringVar(&cfg.BasePath, "base-path", "", "Base path for URL")
 	flag.StringVar(&cfg.StaticDir, "dir", "", "Web static file directory")
-	flag.BoolVar(&cfg.EnableJSONLog, "json-log", false, "Enable JSON log format")
-	flag.Var(intPtrValue{target: &cfg.CacheMaxAge}, "cache-age", "Static file cache max age seconds, default 31536000 seconds, 0 means disable cache")
+	flag.BoolVar(&cfg.EnableJSONLog, "json-log", true, "Enable JSON log format")
+	flag.IntVar(&cfg.CacheMaxAge, "cache-age", 0, "Seconds for static asset, only valid for JS, CSS, and image files (0 means no cache header)")
 
 	flag.Parse() //nolint
 
@@ -63,9 +64,8 @@ func Load() (*Config, error) {
 		}
 	}
 
-	if cfg.CacheMaxAge == nil {
-		cfg.CacheMaxAge = new(int)
-		*cfg.CacheMaxAge = getEnvInt("CACHE_AGE", defaultCacheMaxAge)
+	if cfg.CacheMaxAge == 0 {
+		cfg.CacheMaxAge = getEnvInt("CACHE_AGE", defaultCacheMaxAge)
 	}
 
 	if !cfg.EnableJSONLog {
@@ -127,8 +127,8 @@ func PrintVersion(version, buildTime, commit string) {
 	info := struct {
 		Version   string `json:"version"`
 		Commit    string `json:"commit"`
-		BuildTime string `json:"buildTime"`
-		GoVersion string `json:"goVersion"`
+		BuildTime string `json:"build_time"`
+		GoVersion string `json:"go_version"`
 		Platform  string `json:"platform"`
 	}{
 		Version:   version,
@@ -146,22 +146,12 @@ func PrintVersion(version, buildTime, commit string) {
 	fmt.Println(string(jsonData))
 }
 
-type intPtrValue struct {
-	target **int
-}
-
-func (i intPtrValue) String() string {
-	if i.target == nil || *i.target == nil {
-		return ""
+// IsReleaseVersion check is release version
+func IsReleaseVersion(version string) bool {
+	if version == "prod" {
+		return true
 	}
-	return strconv.Itoa(**i.target)
-}
-
-func (i intPtrValue) Set(value string) error {
-	val, err := strconv.Atoi(value)
-	if err != nil {
-		return err
-	}
-	*i.target = &val
-	return nil
+	pattern := `^v\d+\.\d+\.\d+$`
+	match, _ := regexp.MatchString(pattern, version)
+	return match
 }

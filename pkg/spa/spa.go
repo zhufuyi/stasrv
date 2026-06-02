@@ -23,9 +23,7 @@ type options struct {
 }
 
 func defaultOptions() *options {
-	return &options{
-		cacheMaxAge: 31536000, // 31536000 seconds = 1 year
-	}
+	return &options{}
 }
 
 // Option set the jwt options.
@@ -164,8 +162,8 @@ func (f *Server) localRegister(r *gin.Engine) {
 	}
 
 	if f.is404ToHome {
-		homePage := fmt.Sprintf("%s/index.html", f.basePath)
-		r.NoRoute(browserRefresh(homePage)) // solve using history route 404 problem
+		indexHTML := fmt.Sprintf("%s/index.html", f.basePath)
+		r.NoRoute(handleNotFound(indexHTML, f.basePath))
 	}
 
 	err := f.handleFileContent()
@@ -192,8 +190,8 @@ func (f *Server) embedFSRegister(r *gin.Engine) error {
 	}
 
 	if f.is404ToHome {
-		homePage := fmt.Sprintf("%s/index.html", f.basePath)
-		r.NoRoute(browserRefreshFS(f.embedFS, homePage)) // solve using history route 404 problem
+		indexHTML := fmt.Sprintf("%s/index.html", f.basePath)
+		r.NoRoute(handleNotFoundFS(f.embedFS, indexHTML, f.basePath))
 	}
 
 	// Use fs.Sub to switch the root directory of the file system to the actual localDir
@@ -282,72 +280,61 @@ func (f *Server) setCacheHeader(c *gin.Context, filePath string) {
 	file := strings.ToLower(filepath.Base(filePath))
 	ext := strings.ToLower(filepath.Ext(file))
 
-	// never cache html
-	if ext == ".html" {
-		return
-	}
-
-	// image/font/media cache
 	switch ext {
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp",
 		".svg", ".ico",
 		".woff", ".woff2", ".ttf", ".eot",
 		".mp4", ".webm", ".mp3":
-		c.Header(
-			"Cache-Control",
-			fmt.Sprintf("public, max-age=%d", f.cacheMaxAge),
-		)
-		return
-	}
-
-	// only cache hashed js/css
-	if ext == ".js" || ext == ".css" {
+		c.Header("Cache-Control", fmt.Sprintf("public, must-revalidate, max-age=%d", f.cacheMaxAge))
+	case ".css", ".js":
+		var cacheControlValue string
 		if hasHashFileName(file) {
-			c.Header(
-				"Cache-Control",
-				fmt.Sprintf(
-					"public, max-age=%d, immutable",
-					f.cacheMaxAge,
-				),
-			)
+			cacheControlValue = fmt.Sprintf("public, immutable, max-age=%d", f.cacheMaxAge)
+		} else {
+			cacheControlValue = fmt.Sprintf("public, must-revalidate, max-age=%d", f.cacheMaxAge)
 		}
+		c.Header("Cache-Control", cacheControlValue)
+	default:
+		c.Header("Cache-Control", "no-cache")
 	}
 }
 
-// solve vue using history route 404 problem, for system file
-func browserRefresh(path string) func(c *gin.Context) {
+// solve vue using history route 404 problem, for location file
+func handleNotFound(indexHTML string, basePath string) func(c *gin.Context) {
 	return func(c *gin.Context) {
-		flag := strings.Contains(c.GetHeader("Accept"), "text/html")
-		if flag {
-			content, err := os.ReadFile(path)
-			if err != nil {
-				c.Writer.WriteHeader(http.StatusNotFound)
-				_, _ = c.Writer.WriteString("Not Found")
-				return
+		isReturnHome := false
+		if strings.HasPrefix(c.Request.URL.Path, basePath) {
+			content, err := os.ReadFile(indexHTML)
+			if err == nil {
+				isReturnHome = true
+				c.Header("Content-Type", "text/html; charset=utf-8")
+				c.Writer.WriteHeader(http.StatusOK)
+				_, _ = c.Writer.Write(content)
+				c.Writer.Flush()
 			}
-			c.Header("Content-Type", "text/html; charset=utf-8")
-			c.Writer.WriteHeader(http.StatusOK)
-			_, _ = c.Writer.Write(content)
-			c.Writer.Flush()
+		}
+		if !isReturnHome {
+			c.String(http.StatusNotFound, "404 not found")
 		}
 	}
 }
 
 // solve vue using history route 404 problem, for embed.FS
-func browserRefreshFS(efs embed.FS, path string) func(c *gin.Context) {
+func handleNotFoundFS(efs embed.FS, indexHTML string, basePath string) func(c *gin.Context) {
 	return func(c *gin.Context) {
-		flag := strings.Contains(c.GetHeader("Accept"), "text/html")
-		if flag {
-			content, err := efs.ReadFile(path)
-			if err != nil {
-				c.Writer.WriteHeader(http.StatusNotFound)
-				_, _ = c.Writer.WriteString("Not Found")
-				return
+		isReturnHome := false
+		if strings.HasPrefix(c.Request.URL.Path, basePath) {
+			content, err := efs.ReadFile(indexHTML)
+			if err == nil {
+				isReturnHome = true
+				c.Header("Content-Type", "text/html; charset=utf-8")
+				c.Writer.WriteHeader(http.StatusOK)
+				_, _ = c.Writer.Write(content)
+				c.Writer.Flush()
 			}
-			c.Header("Content-Type", "text/html; charset=utf-8")
-			c.Writer.WriteHeader(http.StatusOK)
-			_, _ = c.Writer.Write(content)
-			c.Writer.Flush()
+		}
+		if !isReturnHome {
+			c.String(http.StatusNotFound, "404 not found")
 		}
 	}
 }

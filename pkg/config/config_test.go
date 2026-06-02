@@ -100,10 +100,10 @@ func TestPrintVersion(t *testing.T) {
 	if result["commit"] != "none" {
 		t.Errorf("Expected commit 'none', got %v", result["commit"])
 	}
-	if result["buildTime"] != "unknown" {
-		t.Errorf("Expected buildTime 'unknown', got %v", result["buildTime"])
+	if result["build_time"] != "unknown" {
+		t.Errorf("Expected buildTime 'unknown', got %v", result["build_time"])
 	}
-	if result["goVersion"] == "" {
+	if result["go_version"] == "" {
 		t.Errorf("Expected goVersion to be populated")
 	}
 	if result["platform"] == "" {
@@ -250,8 +250,8 @@ func TestLoad_Normal(t *testing.T) {
 				"CACHE_MAX_AGE": "7200",
 			},
 			validate: func(t *testing.T, cfg *Config, err error) {
-				if *cfg.CacheMaxAge != 3600 {
-					t.Errorf("Expected cache age 3600, got %d", *cfg.CacheMaxAge)
+				if cfg.CacheMaxAge != 3600 {
+					t.Errorf("Expected cache age 3600, got %d", cfg.CacheMaxAge)
 				}
 			},
 		},
@@ -270,5 +270,24 @@ func TestLoad_Normal(t *testing.T) {
 			cfg, err := Load()
 			tt.validate(t, cfg, err)
 		})
+	}
+}
+
+func TestIsReleaseVersion(t *testing.T) {
+	versions := []string{
+		"v1.0.0",
+		"v1.0.0-rc1",
+		"v1.0.0-beta",
+		"v1.0.0-alpha",
+		"v1.0.0-alpha.1",
+		"v1.0.0-alpha.2",
+		"prod",
+	}
+	for _, v := range versions {
+		if IsReleaseVersion(v) {
+			t.Logf("%s is release version", v)
+		} else {
+			t.Logf("%s is not release version", v)
+		}
 	}
 }

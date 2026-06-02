@@ -3,10 +3,8 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"strings"
-
 	"github.com/gin-gonic/gin"
+	"os"
 
 	"github.com/zhufuyi/stasrv/pkg/config"
 	"github.com/zhufuyi/stasrv/pkg/httpsrv"
@@ -31,7 +29,7 @@ func main() {
 	logger.Init(logger.WithJSONFormat(cfg.EnableJSONLog))
 	defer logger.CloseAsyncLogger()
 
-	if version == "prod" || strings.HasPrefix(version, "v") {
+	if config.IsReleaseVersion(version) {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	r := gin.New()
@@ -44,7 +42,7 @@ func main() {
 
 	f, err := spa.NewLocal(cfg.StaticDir, cfg.BasePath,
 		spa.With404ToHome(),
-		spa.WithCacheMaxAge(*cfg.CacheMaxAge),
+		spa.WithCacheMaxAge(cfg.CacheMaxAge),
 	)
 	if err != nil {
 		logger.Errorf("Failed to init stasrv, %v", err)
@@ -62,7 +60,7 @@ func main() {
 	logger.Info("Configuration",
 		"dir", cfg.StaticDir,
 		"base-path", cfg.BasePath,
-		"cache-age", *cfg.CacheMaxAge)
+		"cache-age", cfg.CacheMaxAge)
 
 	logger.Infof("Starting service on %s", addr)
 	err = httpsrv.ListenAndServeGracefully(addr, r)
