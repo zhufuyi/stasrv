@@ -2,14 +2,14 @@
 
 set -euo pipefail
 
-SERVICE_NAME=${SERVICE_NAME:-stasrv}
+SERVER_NAME=${SERVER_NAME:-stasrv}
 
 # ------------------------------------------------
 # build configuration
 # ------------------------------------------------
 
-BUILD_DIR="cmd/${SERVICE_NAME}"
-FILE_NAME="${SERVICE_NAME}$(go env GOEXE)"
+BUILD_DIR="cmd/${SERVER_NAME}"
+FILE_NAME="${SERVER_NAME}$(go env GOEXE)"
 GO_VERSION=$(go env GOVERSION)
 GOOS=${GOOS:-$(go env GOOS)}
 GOARCH=${GOARCH:-$(go env GOARCH)}

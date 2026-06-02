@@ -4,14 +4,14 @@ RUN apk add git upx
 
 WORKDIR /build
 COPY go.mod go.sum ./
-RUN go env -w GOPROXY=https://goproxy.cn,direct
+#RUN go env -w GOPROXY=https://goproxy.cn,direct
 RUN go mod download
 
 COPY . .
 
 RUN set -eux; \
-    SERVICE_NAME="stasrv"; \
-    BUILD_DIR="cmd/${SERVICE_NAME}"; \
+    SERVER_NAME="stasrv"; \
+    BUILD_DIR="cmd/${SERVER_NAME}"; \
     VERSION="dev"; \
     COMMIT="none"; \
     BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ'); \
@@ -22,14 +22,14 @@ RUN set -eux; \
     fi; \
     \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-        -o "${SERVICE_NAME}" \
+        -o "${SERVER_NAME}" \
         -trimpath \
         -ldflags "\
         -w -s \
         -X main.version=${VERSION} \
         -X main.buildTime=${BUILD_TIME} \
         -X main.commit=${COMMIT}" \
-        ${BUILD_DIR}/main.go
+        ./${BUILD_DIR}
 
 #compressing binary files
 RUN upx -5 /build/stasrv
@@ -37,13 +37,12 @@ RUN upx -5 /build/stasrv
 
 FROM alpine:3.22
 
+RUN apk add --no-cache ca-certificates tzdata \
+ && addgroup -S -g 1000 app && adduser -S -D -H -u 1000 -G app app
+
 WORKDIR /app
 
-RUN apk add --no-cache tzdata \
- && addgroup -S app \
- && adduser -S -G app app
-
-COPY --from=builder --chown=app:app /build/stasrv /app/
+COPY --from=builder --chown=app:app /build/stasrv /app/stasrv
 
 USER app
 
