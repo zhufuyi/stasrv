@@ -7,6 +7,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/zhufuyi/stasrv.svg)](https://pkg.go.dev/github.com/zhufuyi/stasrv)
 [![CI](https://github.com/zhufuyi/stasrv/actions/workflows/ci.yml/badge.svg)](https://github.com/zhufuyi/stasrv/actions)
 [![License: MIT](https://img.shields.io/github/license/zhufuyi/stasrv)](https://github.com/zhufuyi/stasrv/blob/main/LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/zhufuyi/stasrv)](https://github.com/zhufuyi/stasrv/releases)
 
 </div>
 
@@ -45,19 +46,12 @@ stasrv --dir=/var/www/html
 
 ## 命令行参数
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `--dir` | string | `.` | 静态文件根目录的路径（必填） |
-| `--base-path` | string | `/` | URL 的基础路径，例如 `/app` 会将文件挂载在 `/app/` 下 |
-| `--cache-age` | int | `31536000` | 静态资源的 `Cache-Control: max-age` 秒数（0 表示不设置缓存头） |
-| `--port` | int | `8080` | HTTP 服务监听端口 |
-
-缓存策略：
-
-- 图片缓存
-- 带 hash 的 js/css 缓存
-- 非 hash 的 js/css 不缓存
-- html 不缓存
+| 参数 | 类型 | 默认值  | 说明                                         |
+|------|------|------|--------------------------------------------|
+| `--dir` | string |      | 静态文件根目录的路径（必填）                             |
+| `--base-path` | string | `/`  | URL 的基础路径，例如 `/app` 会将文件挂载在 `/app/` 下      |
+| `--cache-age` | int | `0`  | 静态资源的缓存时长(秒)，仅对 js、css 和图片文件有效（0 表示不设置缓存头） |
+| `--port` | int | `8080` | HTTP 服务监听端口                                |
 
 示例：
 

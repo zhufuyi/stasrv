@@ -7,6 +7,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/zhufuyi/stasrv.svg)](https://pkg.go.dev/github.com/zhufuyi/stasrv)
 [![CI](https://github.com/zhufuyi/stasrv/actions/workflows/ci.yml/badge.svg)](https://github.com/zhufuyi/stasrv/actions)
 [![License: MIT](https://img.shields.io/github/license/zhufuyi/stasrv)](https://github.com/zhufuyi/stasrv/blob/main/LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/zhufuyi/stasrv)](https://github.com/zhufuyi/stasrv/releases)
 
 </div>
 
@@ -45,19 +46,12 @@ Open your browser and navigate to `http://localhost:8080` to see your `index.htm
 
 ## Command-Line Arguments
 
-|**Argument**|**Type**|**Default**|**Description**|
-|---|---|---|---|
-|`--dir`|string|`.`|Path to the static file root directory (Required)|
-|`--base-path`|string|`/`|Base URL path. For example, `/app` will mount files under `/app/`|
-|`--cache-age`|int|`31536000`|Seconds for static asset `Cache-Control: max-age` (0 means no cache header)|
-|`--port`|int|`8080`|HTTP service listening port|
-
-File Caching Strategy:
-
-- Images: Cached
-- JS/CSS with hash: Cached
-- JS/CSS without hash: Not cached
-- HTML: Not cached
+|**Argument**|**Type**| **Default** | **Description**                                                                             |
+|---|---|-------------|---------------------------------------------------------------------------------------------|
+|`--dir`|string|          | Path to the static file root directory (Required)                                           |
+|`--base-path`|string| `/`         | Base URL path. For example, `/app` will mount files under `/app/`                           |
+|`--cache-age`|int| `0`         | Seconds for static asset, only valid for JS, CSS, and image files (0 means no cache header) |
+|`--port`|int| `8080`      | HTTP service listening port                                                                 |
 
 Example:
 
