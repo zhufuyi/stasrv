@@ -41,6 +41,7 @@ func TestLogOptions(t *testing.T) {
 	opts := defaultLogOptions()
 	opts.apply(
 		WithSkipPaths("/custom-skip"),
+		WithSkipPrefixPaths("/custom-skip-prefix"),
 		WithTraceIDHeader("X-Custom-Trace-Id"),
 		WithSlogLogger(customLogger),
 	)

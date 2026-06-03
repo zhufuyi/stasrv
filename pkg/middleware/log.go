@@ -20,9 +20,10 @@ import (
 type LogOption func(*logOptions)
 
 type logOptions struct {
-	logger        *slog.Logger
-	skipPaths     map[string]struct{}
-	traceIDHeader string
+	logger          *slog.Logger
+	skipPaths       map[string]struct{}
+	skipPrefixPaths []string
+	traceIDHeader   string
 }
 
 func (o *logOptions) apply(opts ...LogOption) {
@@ -34,12 +35,11 @@ func (o *logOptions) apply(opts ...LogOption) {
 func defaultLogOptions() *logOptions {
 	return &logOptions{
 		skipPaths: map[string]struct{}{
-			"/health":     {},
-			"/healthz":    {},
-			"/metrics":    {},
-			"/swagger":    {},
-			"/swagger-ui": {},
+			"/health":  {},
+			"/healthz": {},
+			"/metrics": {},
 		},
+		skipPrefixPaths: []string{"/.well-known"},
 	}
 }
 
@@ -51,6 +51,12 @@ func WithSkipPaths(paths ...string) LogOption {
 		for _, path := range paths {
 			o.skipPaths[path] = struct{}{}
 		}
+	}
+}
+
+func WithSkipPrefixPaths(paths ...string) LogOption {
+	return func(o *logOptions) {
+		o.skipPrefixPaths = append(o.skipPrefixPaths, paths...)
 	}
 }
 
@@ -71,9 +77,10 @@ func WithSlogLogger(l *slog.Logger) LogOption {
 const defaultTraceIDHeader = "X-Request-Id"
 
 type SlogConfig struct {
-	logger        *slog.Logger
-	skipPaths     map[string]struct{}
-	traceIDHeader string
+	logger          *slog.Logger
+	skipPaths       map[string]struct{}
+	skipPrefixPaths []string
+	traceIDHeader   string
 }
 
 // SlogLogger Gin logging middleware
@@ -82,9 +89,10 @@ func SlogLogger(opts ...LogOption) gin.HandlerFunc {
 	o.apply(opts...)
 
 	cfg := &SlogConfig{
-		logger:        o.logger,
-		skipPaths:     o.skipPaths,
-		traceIDHeader: o.traceIDHeader,
+		logger:          o.logger,
+		skipPaths:       o.skipPaths,
+		skipPrefixPaths: o.skipPrefixPaths,
+		traceIDHeader:   o.traceIDHeader,
 	}
 
 	if cfg.logger == nil {
@@ -100,6 +108,13 @@ func SlogLogger(opts ...LogOption) gin.HandlerFunc {
 		if _, ok := cfg.skipPaths[path]; ok {
 			c.Next()
 			return
+		}
+
+		for _, prefix := range cfg.skipPrefixPaths {
+			if strings.HasPrefix(path, prefix) {
+				c.Next()
+				return
+			}
 		}
 
 		traceID := c.GetHeader(cfg.traceIDHeader)

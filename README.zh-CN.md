@@ -50,14 +50,15 @@ stasrv --dir=/var/www/html
 |------|------|------|--------------------------------------------|
 | `--dir` | string |      | 静态文件根目录的路径（必填）                             |
 | `--base-path` | string | `/`  | URL 的基础路径，例如 `/app` 会将文件挂载在 `/app/` 下      |
-| `--cache-age` | int | `0`  | 静态资源的缓存时长(秒)，仅对 js、css 和图片文件有效（0 表示不设置缓存头） |
 | `--port` | int | `8080` | HTTP 服务监听端口                                |
+| `--enable-list-files` | boolean     | `false`  | 允许访问文件列表                               |
+| `--cache-age` | int | `0`  | 缓存JS、CSS和图像静态资源，单位为秒，0表示没有缓存 |
 
 示例：
 
 ```bash
-# 监听 3000 端口，静态目录为 ./public，基础路径为 /static，缓存 1 小时
-stasrv --dir=./public --port=3000 --base-path=/static --cache-age=3600
+# 监听 3000 端口，静态目录为 ./dist，基础路径为 /app，允许访问文件列表
+stasrv --dir=./dist --port=3000 --base-path=/app --enable-list-files
 ```
 
 此时可通过 `http://localhost:3000/static/` 访问文件。
