@@ -25,8 +25,9 @@ type Config struct {
 	StaticDir   string
 	CacheMaxAge int
 
-	ShowVersion   bool
-	EnableJSONLog bool
+	ShowVersion     bool
+	EnableJSONLog   bool
+	EnableListFiles bool
 }
 
 // Load Parses and loads service configuration
@@ -40,7 +41,8 @@ func Load() (*Config, error) {
 	flag.StringVar(&cfg.BasePath, "base-path", "", "Base path for URL")
 	flag.StringVar(&cfg.StaticDir, "dir", "", "Web static file directory")
 	flag.BoolVar(&cfg.EnableJSONLog, "json-log", true, "Enable JSON log format")
-	flag.IntVar(&cfg.CacheMaxAge, "cache-age", 0, "Seconds for static asset, only valid for JS, CSS, and image files (0 means no cache header)")
+	flag.BoolVar(&cfg.EnableListFiles, "enable-list-files", false, "Allow access to file list")
+	flag.IntVar(&cfg.CacheMaxAge, "cache-age", 0, "Cache JS, CSS, and image static asset, unit is second, 0 means no cache")
 
 	flag.Parse() //nolint
 
@@ -70,6 +72,10 @@ func Load() (*Config, error) {
 
 	if !cfg.EnableJSONLog {
 		cfg.EnableJSONLog = getEnvBool("JSON_LOG", false)
+	}
+
+	if !cfg.EnableListFiles {
+		cfg.EnableListFiles = getEnvBool("ENABLE_LIST_FILES", false)
 	}
 
 	if cfg.StaticDir == "" {

@@ -3,8 +3,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"os"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/zhufuyi/stasrv/pkg/config"
 	"github.com/zhufuyi/stasrv/pkg/httpsrv"
@@ -36,12 +37,9 @@ func main() {
 	r.Use(middleware.SlogLogger())
 	r.Use(gin.Recovery())
 
-	// If there is Nginx/gateway in front, this must be configured,
-	//otherwise c.ClientIP() gets the IP of the intranet gateway.
-	//_ = r.SetTrustedProxies([]string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"})
-
 	f, err := spa.NewLocal(cfg.StaticDir, cfg.BasePath,
-		spa.With404ToHome(),
+		spa.With404ToHome(true),
+		spa.WithListFiles(cfg.EnableListFiles),
 		spa.WithCacheMaxAge(cfg.CacheMaxAge),
 	)
 	if err != nil {
