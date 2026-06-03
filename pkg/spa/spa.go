@@ -1,29 +1,38 @@
-// Package spa provides a simple way to serve Single Page Applications
-// and static assets with Gin router.
+// Package spa provides a Single Page Application (SPA) server for the Gin framework.
+// It supports serving static assets from both local file systems and embed.FS,
+// handles HTML5 History API by redirecting 404 errors to the entry point,
+// and allows dynamic content injection into static files.
 package spa
 
 import (
+	"bytes"
 	"embed"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 type options struct {
-	handleContentFn func(content []byte) []byte
-	specifiedFile   map[string]struct{}
-	is404ToHome     bool
-	cacheMaxAge     int
+	is404ToHome          bool
+	cacheMaxAge          int
+	enableListFiles      bool
+	injectFileContentMap map[string][]func(content []byte) []byte // file: function
 }
 
 func defaultOptions() *options {
-	return &options{}
+	return &options{
+		is404ToHome:     true,
+		enableListFiles: false,
+		cacheMaxAge:     0,
+	}
 }
 
 // Option set the jwt options.
@@ -35,25 +44,17 @@ func (o *options) apply(opts ...Option) {
 	}
 }
 
-// WithHandleContent set function to handle content and specified files
-func WithHandleContent(fn func(content []byte) []byte, files ...string) Option {
+// With404ToHome set 404 to home page
+func With404ToHome(enable bool) Option {
 	return func(o *options) {
-		o.handleContentFn = fn
-		if len(files) > 0 {
-			o.specifiedFile = make(map[string]struct{})
-			for _, file := range files {
-				o.specifiedFile[file] = struct{}{}
-			}
-		} else {
-			fmt.Printf("[Tip] no specified files to handle content, please use WithHandleContent to specify files.")
-		}
+		o.is404ToHome = enable
 	}
 }
 
-// With404ToHome set 404 to home page
-func With404ToHome() Option {
+// WithListFiles enable list files
+func WithListFiles(enable bool) Option {
 	return func(o *options) {
-		o.is404ToHome = true
+		o.enableListFiles = enable
 	}
 }
 
@@ -68,6 +69,47 @@ func WithCacheMaxAge(seconds int) Option {
 	}
 }
 
+// WithInjectFileContentByString set inject file content by string
+func WithInjectFileContentByString(oldStr string, newStr string, files ...string) Option {
+	return func(o *options) {
+		if len(files) == 0 {
+			fmt.Println("[Tip] no specified files to handle content, please use WithInjectFileContentByString to specify files.")
+			return
+		}
+
+		if o.injectFileContentMap == nil {
+			o.injectFileContentMap = make(map[string][]func(content []byte) []byte, len(files))
+		}
+		fn := func(content []byte) []byte {
+			return bytes.ReplaceAll(content, []byte(oldStr), []byte(newStr))
+		}
+		for _, file := range files {
+			o.injectFileContentMap[file] = append(o.injectFileContentMap[file], fn)
+		}
+	}
+}
+
+// WithInjectFileContentByRegular set inject file content by regular expression
+func WithInjectFileContentByRegular(regStr string, replaceStr string, files ...string) Option {
+	return func(o *options) {
+		if len(files) == 0 {
+			fmt.Println("[Tip] no specified files to handle content, please use WithInjectFileContentByRegular to specify files.")
+			return
+		}
+
+		if o.injectFileContentMap == nil {
+			o.injectFileContentMap = make(map[string][]func(content []byte) []byte, len(files))
+		}
+		re := regexp.MustCompile(regStr)
+		fn := func(content []byte) []byte {
+			return re.ReplaceAll(content, []byte(replaceStr))
+		}
+		for _, file := range files {
+			o.injectFileContentMap[file] = append(o.injectFileContentMap[file], fn)
+		}
+	}
+}
+
 // ------------------------------------------------------------------------------------
 
 // Server configures and serves the static assets and SPA routes.
@@ -78,16 +120,18 @@ type Server struct {
 	isUseEmbedFS bool     // if true, use embed.FS, otherwise local static file.
 	embedFS      embed.FS // embed.FS static resources.
 
-	handleContentFn func(content []byte) []byte // handle file content, example: replace config.js apiBaseUrl value.
-	specifiedFile   map[string]struct{}         // specified files to handle content, e.g. config.js
+	// inject file content, example: replace config.js apiBaseUrl value.
+	injectFileContentMap map[string][]func(content []byte) []byte
 
-	// when request route notfound
+	// when request route notfound, default is true.
 	// true: redirect to index.html
 	// false: returns 404, default is false.
 	is404ToHome bool
 
-	// static file cache seconds
-	// 0 means disable cache, default 1 year
+	// enable list files, default is false
+	enableListFiles bool
+
+	// static file cache seconds, 0 means disable cache
 	cacheMaxAge int
 }
 
@@ -101,12 +145,12 @@ func NewLocal(localDir string, basePath string, opts ...Option) (*Server, error)
 	o.apply(opts...)
 
 	return &Server{
-		localDir:        localDir,
-		basePath:        normalizeBasePath(basePath),
-		handleContentFn: o.handleContentFn,
-		specifiedFile:   o.specifiedFile,
-		is404ToHome:     o.is404ToHome,
-		cacheMaxAge:     o.cacheMaxAge,
+		localDir:             localDir,
+		basePath:             normalizeBasePath(basePath),
+		injectFileContentMap: o.injectFileContentMap,
+		is404ToHome:          o.is404ToHome,
+		enableListFiles:      o.enableListFiles,
+		cacheMaxAge:          o.cacheMaxAge,
 	}, nil
 }
 
@@ -121,14 +165,14 @@ func NewEmbedFS(embedFS embed.FS, basePath string, opts ...Option) (*Server, err
 	}
 
 	return &Server{
-		localDir:        localDir,
-		basePath:        normalizeBasePath(basePath),
-		embedFS:         embedFS,
-		isUseEmbedFS:    true,
-		handleContentFn: o.handleContentFn,
-		specifiedFile:   o.specifiedFile,
-		is404ToHome:     o.is404ToHome,
-		cacheMaxAge:     o.cacheMaxAge,
+		localDir:             localDir,
+		basePath:             normalizeBasePath(basePath),
+		embedFS:              embedFS,
+		isUseEmbedFS:         true,
+		injectFileContentMap: o.injectFileContentMap,
+		is404ToHome:          o.is404ToHome,
+		enableListFiles:      o.enableListFiles,
+		cacheMaxAge:          o.cacheMaxAge,
 	}, nil
 }
 
@@ -136,7 +180,7 @@ func NewEmbedFS(embedFS embed.FS, basePath string, opts ...Option) (*Server, err
 func (f *Server) Register(r *gin.Engine) error {
 	// use embed file
 	if f.isUseEmbedFS {
-		if f.handleContentFn == nil {
+		if f.injectFileContentMap == nil {
 			err := f.embedFSRegister(r)
 			if err != nil {
 				return err
@@ -166,22 +210,32 @@ func (f *Server) localRegister(r *gin.Engine) {
 		r.NoRoute(handleNotFound(indexHTML, f.basePath))
 	}
 
-	err := f.handleFileContent()
+	err := f.injectFileContent()
 	if err != nil {
 		fmt.Printf("Handle file content error: %v\n", err)
 	}
 
 	relativePath := fmt.Sprintf("%s/*filepath", f.basePath)
-	r.GET(relativePath, func(c *gin.Context) {
+	handlerFunc := func(c *gin.Context) {
 		filePath := c.Param("filepath")
-		f.setCacheHeader(c, filePath)
 		fullPath := filepath.Join(f.localDir, filepath.Clean(filePath))
 		if !strings.HasPrefix(fullPath, filepath.Clean(f.localDir)) {
 			c.AbortWithStatus(http.StatusForbidden)
 			return
 		}
+
+		var httpStatus int
+		httpStatus, fullPath = checkAllowListFiles(fullPath, f.enableListFiles)
+		if httpStatus > 0 {
+			c.Status(httpStatus)
+			return
+		}
+
+		f.setCacheHeader(c, filePath)
 		c.File(fullPath)
-	})
+	}
+	r.GET(relativePath, handlerFunc)
+	r.HEAD(relativePath, handlerFunc)
 }
 
 func (f *Server) embedFSRegister(r *gin.Engine) error {
@@ -203,11 +257,23 @@ func (f *Server) embedFSRegister(r *gin.Engine) error {
 	fileServer := http.FileServer(http.FS(subFS))
 	handler := http.StripPrefix(f.basePath, fileServer)
 	relativePath := fmt.Sprintf("%s/*filepath", f.basePath)
-	r.GET(relativePath, func(c *gin.Context) {
+
+	handlerFunc := func(c *gin.Context) {
 		filePath := c.Param("filepath")
+
+		var httpStatus int
+		httpStatus = checkAllowListFilesFS(subFS, filePath, f.enableListFiles)
+		if httpStatus > 0 {
+			c.Status(httpStatus)
+			return
+		}
+
 		f.setCacheHeader(c, filePath)
 		handler.ServeHTTP(c.Writer, c.Request)
-	})
+	}
+
+	r.GET(relativePath, handlerFunc)
+	r.HEAD(relativePath, handlerFunc)
 
 	return nil
 }
@@ -245,30 +311,34 @@ func (f *Server) saveFSToLocal() error {
 	})
 }
 
-// handle file content
-func (f *Server) handleFileContent() error {
-	if f.handleContentFn != nil && len(f.specifiedFile) > 0 {
-		filePaths, err := ListFiles(f.localDir)
-		if err != nil {
-			return err
-		}
+func (f *Server) injectFileContent() error {
+	if f.injectFileContentMap == nil {
+		return nil
+	}
 
-		for _, filePath := range filePaths {
-			for file := range f.specifiedFile {
-				if strings.HasSuffix(filePath, file) {
-					content, err := os.ReadFile(filePath)
-					if err != nil {
-						return err
-					}
-					content = f.handleContentFn(content)
-					err = os.WriteFile(filePath, content, 0o644)
-					if err != nil {
-						return err
-					}
+	filePaths, err := ListFiles(f.localDir)
+	if err != nil {
+		return err
+	}
+
+	for _, filePath := range filePaths {
+		for file, fns := range f.injectFileContentMap {
+			if isSuffixPath(filePath, file) {
+				content, err := os.ReadFile(filePath)
+				if err != nil {
+					return err
+				}
+				for _, fn := range fns {
+					content = fn(content)
+				}
+				err = os.WriteFile(filePath, content, 0o644)
+				if err != nil {
+					return err
 				}
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -285,18 +355,65 @@ func (f *Server) setCacheHeader(c *gin.Context, filePath string) {
 		".svg", ".ico",
 		".woff", ".woff2", ".ttf", ".eot",
 		".mp4", ".webm", ".mp3":
-		c.Header("Cache-Control", fmt.Sprintf("public, must-revalidate, max-age=%d", f.cacheMaxAge))
+		c.Header("Cache-Control", fmt.Sprintf("public, max-age=%d, must-revalidate", f.cacheMaxAge))
 	case ".css", ".js":
 		var cacheControlValue string
 		if hasHashFileName(file) {
-			cacheControlValue = fmt.Sprintf("public, immutable, max-age=%d", f.cacheMaxAge)
+			cacheControlValue = fmt.Sprintf("public, max-age=%d, immutable", f.cacheMaxAge)
 		} else {
-			cacheControlValue = fmt.Sprintf("public, must-revalidate, max-age=%d", f.cacheMaxAge)
+			cacheControlValue = fmt.Sprintf("public, max-age=%d, must-revalidate", f.cacheMaxAge)
 		}
 		c.Header("Cache-Control", cacheControlValue)
 	default:
 		c.Header("Cache-Control", "no-cache")
 	}
+}
+
+func checkAllowListFiles(fullPath string, enableListFiles bool) (int, string) {
+	if enableListFiles {
+		return 0, fullPath
+	}
+
+	fi, err := os.Stat(fullPath)
+	if err != nil {
+		return http.StatusNotFound, ""
+	}
+
+	if fi.IsDir() {
+		fullPath = filepath.Join(fullPath, "index.html")
+		_, err = os.Stat(fullPath)
+		if err != nil {
+			return http.StatusForbidden, ""
+		}
+	}
+	return 0, fullPath
+}
+
+func checkAllowListFilesFS(fsys fs.FS, filePath string, enableListFiles bool) int {
+	if enableListFiles {
+		return 0
+	}
+
+	filePath = strings.TrimLeft(filePath, "/")
+	filePath = strings.TrimRight(filePath, "/")
+	if filePath == "" {
+		filePath = "."
+	}
+
+	fi, err := fs.Stat(fsys, filePath)
+	if err != nil {
+		return http.StatusNotFound
+	}
+
+	if fi.IsDir() {
+		indexFile := path.Join(filePath, "index.html")
+		_, err = fs.Stat(fsys, indexFile)
+		if err != nil {
+			return http.StatusForbidden
+		}
+	}
+
+	return 0
 }
 
 // solve vue using history route 404 problem, for location file
@@ -314,7 +431,7 @@ func handleNotFound(indexHTML string, basePath string) func(c *gin.Context) {
 			}
 		}
 		if !isReturnHome {
-			c.String(http.StatusNotFound, "404 not found")
+			c.String(http.StatusNotFound, "404 Not Found")
 		}
 	}
 }
@@ -334,7 +451,7 @@ func handleNotFoundFS(efs embed.FS, indexHTML string, basePath string) func(c *g
 			}
 		}
 		if !isReturnHome {
-			c.String(http.StatusNotFound, "404 not found")
+			c.String(http.StatusNotFound, "404 Not Found")
 		}
 	}
 }
@@ -386,11 +503,6 @@ func isExists(filePath string) bool {
 }
 
 func hasHashFileName(name string) bool {
-	// example:
-	// app.a1b2c3.js
-	// app-8f3d2c.css
-	// vendor.123456789.js
-
 	name = strings.ToLower(name)
 
 	ext := filepath.Ext(name)
@@ -413,10 +525,41 @@ func hasHashFileName(name string) bool {
 
 	for _, c := range last {
 		if !((c >= '0' && c <= '9') ||
-			(c >= 'a' && c <= 'f')) {
+			(c >= 'a' && c <= 'z') ||
+			(c == '_')) {
 			return false
 		}
 	}
 
 	return true
+}
+
+func normalizePath(p string) string {
+	if p == "" {
+		return ""
+	}
+
+	// convert '\' -> '/'
+	p = strings.ReplaceAll(p, `\`, `/`)
+
+	// remove drive letter
+	if len(p) >= 2 && p[1] == ':' {
+		p = p[2:]
+	}
+
+	// use path.Clean instead of filepath.Clean
+	p = path.Clean(p)
+
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+
+	return p
+}
+
+func isSuffixPath(path1 string, path2 string) bool {
+	if path2 == "" {
+		return false
+	}
+	return strings.HasSuffix(normalizePath(path1), normalizePath(path2))
 }

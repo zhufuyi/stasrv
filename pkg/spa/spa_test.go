@@ -18,6 +18,34 @@ import (
 //go:embed testdata/*
 var testEmbedFS embed.FS
 
+func newTmpDir(t *testing.T) string {
+	// mock index.html
+	dir := t.TempDir()
+	indexContent := []byte(`<!DOCTYPE html>
+<html>
+	<head>
+		<title>First Page</title>
+	</head>
+	<body>
+		<h1>Hello World!</h1>
+	</body>
+</html>
+`)
+	err := os.WriteFile(filepath.Join(dir, "index.html"), indexContent, 0o644)
+	require.NoError(t, err)
+
+	// mock config.js
+	configContent := []byte(`
+const appConfig = {
+  api_base: "/api/v1",
+};
+`)
+	err = os.WriteFile(filepath.Join(dir, "config.js"), configContent, 0o644)
+	require.NoError(t, err)
+
+	return dir
+}
+
 func init() {
 	gin.SetMode(gin.TestMode)
 }
@@ -50,74 +78,83 @@ func TestIsExists(t *testing.T) {
 func Test_Options(t *testing.T) {
 	// Test default
 	o := defaultOptions()
-	assert.False(t, o.is404ToHome)
-	assert.Nil(t, o.handleContentFn)
-	assert.Nil(t, o.specifiedFile)
+	assert.True(t, o.is404ToHome)
+	assert.Nil(t, o.injectFileContentMap)
 
 	// Test With404ToHome
-	opt1 := With404ToHome()
+	opt1 := With404ToHome(true)
 	opt1(o)
 	assert.True(t, o.is404ToHome)
 
-	// Test WithHandleContent
-	fn := func(content []byte) []byte { return content }
-	opt2 := WithHandleContent(fn, "config.js", "index.html")
+	// Test WithInjectFileContent
+	opt2 := WithInjectFileContentByString("java", "golang", "index.html")
+	opt3 := WithInjectFileContentByRegular(
+		`const\s+BASE_URL\s*=\s*"[^"]*"\s*;`,
+		`const BASE_URL = "/myapp/api/v1";`,
+		"config.js",
+	)
+
 	opt2(o)
+	opt3(o)
 
-	assert.NotNil(t, o.handleContentFn)
-	assert.Contains(t, o.specifiedFile, "config.js")
-	assert.Contains(t, o.specifiedFile, "index.html")
+	assert.Contains(t, o.injectFileContentMap, "config.js")
+	assert.Contains(t, o.injectFileContentMap, "index.html")
 
-	// Test WithHandleContent without files (trigger Tip print)
-	opt3 := WithHandleContent(fn)
+	opt4 := WithInjectFileContentByString("php", "golang", "index.html")
+	opt4(o)
+	assert.Equal(t, 2, len(o.injectFileContentMap))
+
+	// not specified file
+	opt5 := WithInjectFileContentByString("java", "golang")
+	opt6 := WithInjectFileContentByRegular(
+		`const\s+BASE_URL\s*=\s*"[^"]*"\s*;`,
+		`const BASE_URL = "/myapp/api/v1";`,
+	)
 	o2 := defaultOptions()
-	opt3(o2)
-	assert.NotNil(t, o2.handleContentFn)
-	assert.Nil(t, o2.specifiedFile)
+	opt5(o2)
+	opt6(o2)
+	assert.Nil(t, o2.injectFileContentMap)
 }
 
 func TestNewLocal(t *testing.T) {
-	// Not exists dir
-	_, err := NewLocal("non_existent_dir", "/")
-	assert.Error(t, err)
-
 	// Exists dir
-	dir := t.TempDir()
-	fe, err := NewLocal(dir, "/app", With404ToHome())
+	dir := newTmpDir(t)
+	fe, err := NewLocal(dir, "/app",
+		With404ToHome(true),
+		WithListFiles(true),
+		WithCacheMaxAge(86400),
+	)
 	assert.NoError(t, err)
 	assert.NotNil(t, fe)
 	assert.Equal(t, dir, fe.localDir)
 	assert.Equal(t, "/app", fe.basePath)
 	assert.True(t, fe.is404ToHome)
+
+	// Not exists dir
+	_, err = NewLocal("non_existent_dir", "/")
+	assert.Error(t, err)
 }
 
 func TestNewEmbedFS(t *testing.T) {
-	// Using testEmbedFS which is just a single file (spa.go), not a directory.
-	// getEmbedDir will return "" because there's no nested directory structure.
-	fe, err := NewEmbedFS(testEmbedFS, "/app")
+	f, err := NewEmbedFS(testEmbedFS, "/app",
+		With404ToHome(false),
+		WithListFiles(false),
+		WithCacheMaxAge(86400),
+	)
 	assert.Nil(t, err)
-	assert.NotNil(t, fe)
-	assert.Equal(t, "testdata", fe.localDir)
-	assert.Equal(t, "/app", fe.basePath)
+	assert.NotNil(t, f)
+	assert.Equal(t, "testdata", f.localDir)
+	assert.Equal(t, "/app", f.basePath)
 }
 
 func TestLocalRegister_And_Routing(t *testing.T) {
-	dir := t.TempDir()
-	indexContent := []byte("<html>Home</html>")
-	err := os.WriteFile(filepath.Join(dir, "index.html"), indexContent, 0o644)
-	require.NoError(t, err)
-
-	// mock config.js
-	configContent := []byte("api_url")
-	err = os.WriteFile(filepath.Join(dir, "config.js"), configContent, 0o644)
-	require.NoError(t, err)
+	dir := newTmpDir(t)
 
 	fe, err := NewLocal(dir, "/static",
-		With404ToHome(),
+		With404ToHome(true),
 		WithCacheMaxAge(86400),
-		WithHandleContent(func(content []byte) []byte {
-			return []byte(strings.ReplaceAll(string(content), "api_url", "http://localhost:8080"))
-		}, "config.js"),
+		WithInjectFileContentByRegular(`<title>.*?</title>`, "<title>golang</title>", "index.html"),
+		WithInjectFileContentByRegular(`api_base\s*:\s*"[^"]*"`, `api_base: "/myapp/api"`, "config.js"),
 	)
 	require.NoError(t, err)
 
@@ -131,14 +168,14 @@ func TestLocalRegister_And_Routing(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "<html>Home</html>", w.Body.String())
+	assert.Contains(t, w.Body.String(), "<h1>Hello World!</h1>")
 
 	// Test 2: Fetch handled file (config.js)
 	req, _ = http.NewRequest("GET", "/static/config.js", nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "http://localhost:8080", w.Body.String()) // File should have been modified
+	assert.Contains(t, w.Body.String(), "/myapp/api") // File should have been modified
 
 	// Test 4: 404 WITHOUT Accept HTML (Should return standard 404)
 	req, _ = http.NewRequest("GET", "/static/not-exist-route", nil)
@@ -174,7 +211,7 @@ func TestHandleNotFound(t *testing.T) {
 	handler2(c2)
 
 	assert.Equal(t, http.StatusNotFound, w2.Code)
-	assert.Equal(t, "404 not found", w2.Body.String())
+	assert.Equal(t, "404 Not Found", w2.Body.String())
 }
 
 func TestHandleNotFoundFS(t *testing.T) {
@@ -204,39 +241,19 @@ func TestHandleNotFoundFS(t *testing.T) {
 	handler2(c2)
 
 	assert.Equal(t, http.StatusNotFound, w2.Code)
-	assert.Equal(t, "404 not found", w2.Body.String())
-}
-
-func TestEmbedFS_Register_WithHandleContent(t *testing.T) {
-	fe, err := NewEmbedFS(testEmbedFS, "/",
-		WithHandleContent(func(content []byte) []byte {
-			return []byte(strings.ReplaceAll(string(content), "Hello World", "Hello World"))
-		}, "index.html",
-		))
-	require.NoError(t, err)
-
-	r := gin.New()
-	err = fe.Register(r)
-	assert.NoError(t, err)
-
-	// Since saveFSToLocal ran, 'register.go' should now exist in localDir
-	assert.True(t, isExists(filepath.Join(fe.localDir, "index.html")))
+	assert.Equal(t, "404 Not Found", w2.Body.String())
 }
 
 func TestEmbedFSRegister_Direct(t *testing.T) {
-	fe, err := NewEmbedFS(testEmbedFS, "/",
-		WithHandleContent(func(content []byte) []byte {
-			return []byte(strings.ReplaceAll(string(content), "Hello World", "Hello World"))
-		}, "index.html",
-		))
+	f, err := NewEmbedFS(testEmbedFS, "/app")
 	require.NoError(t, err)
 
 	r := gin.New()
-	err = fe.embedFSRegister(r)
+	err = f.Register(r)
 	assert.NoError(t, err)
 
 	// Request an embedded file
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest("GET", "/app/", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -248,13 +265,22 @@ func TestEmbedFSRegister_Direct(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestHandleFileContent_WithoutListFilesError(t *testing.T) {
-	fe := &Server{
-		localDir:        t.TempDir(),
-		handleContentFn: nil,
-	}
-	err := fe.handleFileContent()
+func TestEmbedFS_Register_WithInjectFileContent(t *testing.T) {
+	fe, err := NewEmbedFS(testEmbedFS, "/app",
+		WithInjectFileContentByString("Hello World", "Hello World", "index.html"),
+	)
+	require.NoError(t, err)
+
+	r := gin.New()
+	err = fe.Register(r)
 	assert.NoError(t, err)
+
+	// Request an embedded file
+	req, _ := http.NewRequest("GET", "/app/", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "Hello World")
 }
 
 func TestWithCacheMaxAge(t *testing.T) {
@@ -330,6 +356,11 @@ func TestHasHashFileName(t *testing.T) {
 			want:     true,
 		},
 		{
+			name:     "underline hash",
+			fileName: "app.abc_123.js",
+			want:     true,
+		},
+		{
 			name:     "normal js",
 			fileName: "app.js",
 			want:     false,
@@ -356,7 +387,7 @@ func TestHasHashFileName(t *testing.T) {
 		},
 		{
 			name:     "non hex hash",
-			fileName: "app.xyz123.js",
+			fileName: "app.xyz/123.js",
 			want:     false,
 		},
 		{
