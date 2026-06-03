@@ -109,8 +109,3 @@ services:
 | 适用场景 | 微服务前端、本地调试、容器化 | 通用反向代理、高并发场景 |
 
 `stasrv` 并非要取代 Nginx，而是提供一种**更轻量、无配置**的选择，在不需要复杂反向代理规则的场景下大幅简化部署。
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！  
-如果你有好的想法或发现了 bug，请到 [GitHub Issues](https://github.com/zhufuyi/stasrv/issues) 参与讨论。

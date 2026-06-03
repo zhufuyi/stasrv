@@ -1,4 +1,4 @@
-## English | [中文](readme-cn.md)
+## English | [中文](README.zh-CN.md)
 
 <div align="center">
 
@@ -46,18 +46,19 @@ Open your browser and navigate to `http://localhost:8080` to see your `index.htm
 
 ## Command-Line Arguments
 
-|**Argument**|**Type**| **Default** | **Description**                                                                             |
-|---|---|-------------|---------------------------------------------------------------------------------------------|
-|`--dir`|string|          | Path to the static file root directory (Required)                                           |
-|`--base-path`|string| `/`         | Base URL path. For example, `/app` will mount files under `/app/`                           |
-|`--cache-age`|int| `0`         | Seconds for static asset, only valid for JS, CSS, and image files (0 means no cache header) |
-|`--port`|int| `8080`      | HTTP service listening port                                                                 |
+| **Argument**          | **Type** | **Default** | **Description**                                                                             |
+|-----------------------|----------|-------------|---------------------------------------------------------------------------------------------|
+| `--dir`               | string   |             | Path to the static file root directory (Required)                                           |
+| `--base-path`         | string   | `/`         | Base URL path. For example, `/app` will mount files under `/app/`                           |
+| `--port`              | int      | `8080`      | HTTP service listening port                                                                 |
+| `--enable-list-files` | boolean     | `false`     | Allow access to file list |
+| `--cache-age`         | int      | `0`         | Cache JS, CSS, and image static asset, unit is second, 0 means no cache |
 
 Example:
 
 ```bash
-# Listen on port 3000, static directory set to ./public, base path set to /static, cache for 1 hour
-stasrv --dir=./public --port=3000 --base-path=/static --cache-age=3600
+# Listen on port 3000, static directory set to ./dist, base path set to /app, allow access to file list
+stasrv --dir=./dist --port=3000 --base-path=/app --enable-list-files
 ```
 
 You can now access your files via `http://localhost:3000/static/`.
@@ -108,9 +109,3 @@ Access `http://localhost:8080/app/` to view the `index.html` page.
 |Best Used For|Microservice stasrv, local debugging, containerized environments|General reverse proxy, high concurrency scenarios|
 
 `stasrv` is not intended to fully replace Nginx. Instead, it provides a **lighter, zero-configuration** alternative that significantly simplifies deployment in scenarios where complex reverse proxy rules are not required.
-
-## Contributing
-
-Issues and Pull Requests are welcome!
-
-If you have great ideas or find a bug, please join the discussion on [GitHub Issues](https://github.com/zhufuyi/stasrv/issues).
