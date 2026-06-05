@@ -2,67 +2,103 @@
 package main
 
 import (
+	"context"
+	"embed"
 	"fmt"
-	"os"
 
-	"github.com/gin-gonic/gin"
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/middlewares/server/recovery"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	hconfig "github.com/cloudwego/hertz/pkg/common/config"
+	"github.com/cloudwego/hertz/pkg/common/hlog"
 
 	"github.com/zhufuyi/stasrv/pkg/config"
 	"github.com/zhufuyi/stasrv/pkg/httpsrv"
 	"github.com/zhufuyi/stasrv/pkg/logger"
+	"github.com/zhufuyi/stasrv/pkg/logger/hertzlogger"
 	"github.com/zhufuyi/stasrv/pkg/middleware"
 	"github.com/zhufuyi/stasrv/pkg/spa"
 )
 
 var version, buildTime, commit string // inject from build
 
-func main() {
-	cfg, err := config.Load() // Load service configuration
-	if err != nil {
-		panic(err)
-	}
+//go:embed embedded_dir/*
+var embedFS embed.FS
 
+func main() {
+	logger.Init(
+		logger.WithVersion(version),
+		logger.WithServiceName("stasrv"),
+	)
+
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Fatalf("configuration error: %v", err)
+	}
 	if cfg.ShowVersion {
 		config.PrintVersion(version, buildTime, commit)
 		return
 	}
-
-	logger.Init(logger.WithJSONFormat(cfg.EnableJSONLog))
-	defer logger.CloseAsyncLogger()
-
-	if config.IsReleaseVersion(version) {
-		gin.SetMode(gin.ReleaseMode)
-	}
-	r := gin.New()
-	r.Use(middleware.SlogLogger())
-	r.Use(gin.Recovery())
-
-	f, err := spa.NewLocal(cfg.StaticDir, cfg.BasePath,
-		spa.With404ToHome(true),
-		spa.WithListFiles(cfg.EnableListFiles),
-		spa.WithCacheMaxAge(cfg.CacheMaxAge),
-	)
-	if err != nil {
-		logger.Errorf("Failed to init stasrv, %v", err)
-		os.Exit(1)
-	}
-
-	err = f.Register(r)
-	if err != nil {
-		logger.Errorf("Failed to register, %v", err)
-		os.Exit(1)
-	}
+	logger.Info("configuration information", logger.Any("flags", cfg))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
+	opts := []hconfig.Option{
+		server.WithHostPorts(addr),
+	}
+	if config.IsReleaseVersion(version) {
+		opts = append(opts, server.WithDisablePrintRoute(true))
+	}
+	h := server.New(opts...)
+	hlog.SetLogger(hertzlogger.NewHertzLogger())
+	h.Use(middleware.AccessLog(middleware.WithLogger(logger.Get())))
+	h.Use(recovery.Recovery())
 
-	logger.Info("Configuration",
-		"dir", cfg.StaticDir,
-		"base-path", cfg.BasePath,
-		"cache-age", cfg.CacheMaxAge)
+	h.GET("/health", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(200, map[string]any{
+			"status": "UP",
+		})
+	})
 
-	logger.Infof("Starting service on %s", addr)
-	err = httpsrv.ListenAndServeGracefully(addr, r)
+	err = registerStaticFile(cfg, h)
+	if err != nil {
+		logger.Fatalf("failed to register, %v", err)
+	}
+
+	err = httpsrv.RunGracefully(h)
 	if err != nil {
 		logger.Fatalf("%v", err)
 	}
+	logger.Info("server exited gracefully")
+}
+
+func registerStaticFile(cfg *config.Config, h *server.Hertz) error {
+	opts := []spa.Option{
+		spa.With404ToHome(true),
+		spa.WithListFiles(cfg.EnableListFiles),
+		spa.WithCacheMaxAge(cfg.CacheMaxAge),
+	}
+
+	for _, location := range cfg.Locations {
+		srv, err := spa.NewLocal(location.Path, location.Root, opts...)
+		if err != nil {
+			return err
+		}
+		if err = srv.Register(h); err != nil {
+			return fmt.Errorf("register '%s -> %s' error: %v", srv.GetBasePath(), srv.GetLocalDir(), err)
+		}
+		logger.Infof("register static file '%s -> %s' success", srv.GetBasePath(), srv.GetLocalDir())
+	}
+
+	if cfg.EmbedFSBasePath != "" {
+		srv, err := spa.NewEmbedFS(cfg.EmbedFSBasePath, embedFS, opts...)
+		if err != nil {
+			return err
+		}
+		if err = srv.Register(h); err != nil {
+			return fmt.Errorf("register embed file '%s -> %s' error: %v", srv.GetBasePath(), srv.GetLocalDir(), err)
+		}
+		logger.Infof("register embed file '%s -> %s' success", srv.GetBasePath(), srv.GetLocalDir())
+	}
+
+	return nil
 }

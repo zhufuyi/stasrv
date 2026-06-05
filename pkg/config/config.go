@@ -1,48 +1,46 @@
-// Package config is the configuration package
+// Package config is the stasrv configuration
 package config
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
-	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
+	"strings"
 )
 
-const (
-	defaultPort        = 8080
-	defaultBasePath    = "/"
-	defaultCacheMaxAge = 0 // 0 means no cache
-)
+const defaultPort = 8080
 
 // Config Defines the common configuration of Web services
 type Config struct {
-	Port        int
-	BasePath    string
-	StaticDir   string
-	CacheMaxAge int
+	Locations []location `json:"locations"`
 
-	ShowVersion     bool
-	EnableJSONLog   bool
-	EnableListFiles bool
+	Port            int    `json:"port"`
+	EmbedFSBasePath string `json:"embed_fs_base_path"`
+	CacheMaxAge     int    `json:"cache_max_age"`
+	EnableListFiles bool   `json:"enable_list_files"`
+	ShowVersion     bool   `json:"-"`
 }
 
 // Load Parses and loads service configuration
-// Priority: Command line parameters (Flag) > Environment variables (Env) > Default
 func Load() (*Config, error) {
-	cfg := &Config{}
-	var showVersion bool
+	var (
+		showVersion   bool
+		locationFlags locationsValue
+
+		cfg = &Config{}
+	)
+
+	// Example: --location="/assets:/var/www/assets" --location="/js:/var/www/js"
+	flag.Var(&locationFlags, "location", "Static assets mapping in 'path:root' format (can be multiple)")
 
 	flag.BoolVar(&showVersion, "version", false, "Print version")
-	flag.IntVar(&cfg.Port, "port", 0, "Server listen port")
-	flag.StringVar(&cfg.BasePath, "base-path", "", "Base path for URL")
-	flag.StringVar(&cfg.StaticDir, "dir", "", "Web static file directory")
-	flag.BoolVar(&cfg.EnableJSONLog, "json-log", true, "Enable JSON log format")
+	flag.IntVar(&cfg.Port, "port", defaultPort, "Server listen port")
 	flag.BoolVar(&cfg.EnableListFiles, "enable-list-files", false, "Allow access to file list")
 	flag.IntVar(&cfg.CacheMaxAge, "cache-age", 0, "Cache JS, CSS, and image static asset, unit is second, 0 means no cache")
+	flag.StringVar(&cfg.EmbedFSBasePath, "fs-base-path", "", "Embed FS base path. Copy files to ./embedded_dir and run 'make build'")
 
 	flag.Parse() //nolint
 
@@ -51,72 +49,94 @@ func Load() (*Config, error) {
 		return cfg, nil
 	}
 
-	if cfg.Port == 0 {
-		cfg.Port = getEnvInt("PORT", defaultPort)
-	}
-	if cfg.BasePath == "" {
-		cfg.BasePath = getEnvStr("BASE_PATH", defaultBasePath)
-		fmt.Println(cfg.BasePath)
-	}
-	if cfg.StaticDir == "" {
-		cfg.StaticDir = getEnvStr("STATIC_DIR", "")
-	} else {
-		if !isExists(cfg.StaticDir) {
-			cfg.StaticDir = getEnvStr("STATIC_DIR", cfg.StaticDir)
-		}
-	}
+	cfg.Locations = locationFlags
 
-	if cfg.CacheMaxAge == 0 {
-		cfg.CacheMaxAge = getEnvInt("CACHE_AGE", defaultCacheMaxAge)
-	}
-
-	if !cfg.EnableJSONLog {
-		cfg.EnableJSONLog = getEnvBool("JSON_LOG", false)
-	}
-
-	if !cfg.EnableListFiles {
-		cfg.EnableListFiles = getEnvBool("ENABLE_LIST_FILES", false)
-	}
-
-	if cfg.StaticDir == "" {
-		return nil, errors.New("web static file directory '--dir' or env 'STATIC_DIR' is required")
-	}
-	if !isExists(cfg.StaticDir) {
-		return nil, errors.New("web static file directory '" + cfg.StaticDir + "' is not exists")
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
 }
 
-func getEnvStr(key, fallback string) string {
-	if val, ok := os.LookupEnv(key); ok && val != "" {
-		return val
-	}
-	return fallback
-}
-
-func getEnvInt(key string, fallback int) int {
-	if val, ok := os.LookupEnv(key); ok && val != "" {
-		if p, err := strconv.Atoi(val); err == nil {
-			return p
+// check the effectiveness of flags
+func (c *Config) validate() error {
+	if len(c.Locations) == 0 {
+		if c.EmbedFSBasePath == "" {
+			return fmt.Errorf("no static file mapping found, usage: ./stasrv --location=/assets:/var/www/assets")
 		}
+		return nil
 	}
-	return fallback
-}
 
-func getEnvBool(key string, fallback bool) bool {
-	if val, ok := os.LookupEnv(key); ok && val != "" {
-		if b, err := strconv.ParseBool(val); err == nil {
-			return b
+	seenPaths := make(map[string]bool)
+	seenRoots := make(map[string]bool)
+
+	if c.EmbedFSBasePath != "" {
+		c.EmbedFSBasePath = normalizePath(c.EmbedFSBasePath)
+		seenPaths[c.EmbedFSBasePath] = true
+	}
+
+	for _, sc := range c.Locations {
+		if sc.Path == "" || sc.Root == "" {
+			return fmt.Errorf("both path and root must be provided in location")
 		}
+
+		if seenPaths[sc.Path] {
+			return fmt.Errorf("duplicate location path found: %s", sc.Path)
+		}
+		seenPaths[sc.Path] = true
+
+		if seenRoots[sc.Root] {
+			return fmt.Errorf("duplicate local root directory found: %s", sc.Root)
+		}
+		seenRoots[sc.Root] = true
 	}
-	return fallback
+
+	return nil
 }
 
-func isExists(path string) bool {
-	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
+// ----------------------------------------------------------
+
+// location nginx location simplified configuration
+type location struct {
+	Path string `json:"path"` // URL access path, e.g."/static/"
+	Root string `json:"root"` // Local file directory, e.g."/var/www/static"
 }
+
+type locationsValue []location
+
+func (s *locationsValue) String() string {
+	return fmt.Sprintf("%v", *s)
+}
+
+// Set resolve the format of 'path:root'
+func (s *locationsValue) Set(value string) error {
+	parts := strings.SplitN(value, ":", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("invalid format '%s', expected 'path:root'", value)
+	}
+
+	*s = append(*s, location{
+		Path: normalizePath(parts[0]),
+		Root: parts[1],
+	})
+	return nil
+}
+
+func normalizePath(basePath string) string {
+	if !strings.HasPrefix(basePath, "/") {
+		basePath = "/" + basePath
+	}
+	basePath = strings.TrimSuffix(basePath, "/")
+	if basePath != "" {
+		basePath = filepath.ToSlash(filepath.Clean(basePath))
+	}
+	if basePath == "" {
+		basePath = "/"
+	}
+	return basePath
+}
+
+// --------------------------------------------------------
 
 // PrintVersion print version info
 func PrintVersion(version, buildTime, commit string) {

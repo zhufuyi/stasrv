@@ -2,292 +2,241 @@ package config
 
 import (
 	"bytes"
-	"encoding/json"
 	"flag"
 	"io"
 	"os"
+	"strings"
 	"testing"
 )
 
-func resetFlags() {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
-}
-
-func TestGetEnvStr(t *testing.T) {
-	t.Setenv("TEST_STR_ENV", "hello")
-	t.Setenv("TEST_EMPTY_ENV", "")
-
+func TestNormalizePath(t *testing.T) {
 	tests := []struct {
-		name     string
-		key      string
-		fallback string
-		want     string
+		input    string
+		expected string
 	}{
-		{"Exists", "TEST_STR_ENV", "default", "hello"},
-		{"Not Exists", "NON_EXISTENT", "default", "default"},
-		{"Exists but empty", "TEST_EMPTY_ENV", "default", "default"},
+		{"/assets", "/assets"},
+		{"assets", "/assets"},
+		{"/assets/", "/assets"},
+		{"assets/", "/assets"},
+		{"/", "/"},
+		{"", "/"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := getEnvStr(tt.key, tt.fallback); got != tt.want {
-				t.Errorf("getEnvStr() = %v, want %v", got, tt.want)
-			}
-		})
+		result := normalizePath(tt.input)
+		if result != tt.expected {
+			t.Errorf("normalizePath(%s) = %s; want %s", tt.input, result, tt.expected)
+		}
 	}
 }
 
-func TestGetEnvInt(t *testing.T) {
-	t.Setenv("TEST_INT_ENV", "8081")
-	t.Setenv("TEST_INT_INVALID", "not-an-int")
-	t.Setenv("TEST_INT_EMPTY", "")
+func TestLocationsValue(t *testing.T) {
+	lv := &locationsValue{}
 
-	tests := []struct {
-		name     string
-		key      string
-		fallback int
-		want     int
-	}{
-		{"Exists and valid", "TEST_INT_ENV", 8080, 8081},
-		{"Not Exists", "NON_EXISTENT", 8080, 8080},
-		{"Exists but empty", "TEST_INT_EMPTY", 8080, 8080},
-		{"Exists but invalid", "TEST_INT_INVALID", 8080, 8080},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := getEnvInt(tt.key, tt.fallback); got != tt.want {
-				t.Errorf("getEnvInt() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsExists(t *testing.T) {
-	tempDir := t.TempDir()
-
-	if !isExists(tempDir) {
-		t.Errorf("isExists(%s) expected true, got false", tempDir)
-	}
-
-	if isExists("/path/that/definitely/does/not/exist/123456") {
-		t.Errorf("isExists expected false, got true")
-	}
-}
-
-func TestPrintVersion(t *testing.T) {
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	PrintVersion("", "", "")
-
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-
-	var result map[string]any
-	err := json.Unmarshal(buf.Bytes(), &result)
+	// Test Set success
+	err := lv.Set("/api:/var/www/api")
 	if err != nil {
-		t.Fatalf("Failed to parse JSON output: %v", err)
+		t.Fatalf("Set failed: %v", err)
+	}
+	if len(*lv) != 1 || (*lv)[0].Path != "/api" || (*lv)[0].Root != "/var/www/api" {
+		t.Errorf("Unexpected value after Set: %v", *lv)
 	}
 
-	if result["version"] != "dev" {
-		t.Errorf("Expected version 'dev', got %v", result["version"])
-	}
-	if result["commit"] != "none" {
-		t.Errorf("Expected commit 'none', got %v", result["commit"])
-	}
-	if result["build_time"] != "unknown" {
-		t.Errorf("Expected buildTime 'unknown', got %v", result["build_time"])
-	}
-	if result["go_version"] == "" {
-		t.Errorf("Expected goVersion to be populated")
-	}
-	if result["platform"] == "" {
-		t.Errorf("Expected platform to be populated")
+	// Test Set invalid format
+	err = lv.Set("invalid-format")
+	if err == nil {
+		t.Error("Expected error for invalid format, got nil")
 	}
 
-	r2, w2, _ := os.Pipe()
-	os.Stdout = w2
-	PrintVersion("v1.0.0", "2023-01-01", "abc1234")
-	w2.Close()
-	os.Stdout = oldStdout
+	// Test Set empty parts
+	err = lv.Set(":/root")
+	if err == nil {
+		t.Error("Expected error for empty path, got nil")
+	}
 
-	var buf2 bytes.Buffer
-	_, _ = io.Copy(&buf2, r2)
-	_ = json.Unmarshal(buf2.Bytes(), &result)
-
-	if result["version"] != "v1.0.0" {
-		t.Errorf("Expected version 'v1.0.0', got %v", result["version"])
+	// Test String
+	str := lv.String()
+	if !strings.Contains(str, "/api") {
+		t.Errorf("String() output unexpected: %s", str)
 	}
 }
 
-func TestLoad_Normal(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-
-	tempDir := t.TempDir()
-
+func TestConfigValidate(t *testing.T) {
 	tests := []struct {
-		name     string
-		args     []string
-		env      map[string]string
-		validate func(*testing.T, *Config, error)
+		name    string
+		config  *Config
+		wantErr bool
 	}{
 		{
-			name: "Show Version Flag",
-			args: []string{"cmd", "-version"},
-			validate: func(t *testing.T, cfg *Config, err error) {
-				if !cfg.ShowVersion {
-					t.Errorf("Expected ShowVersion to be true")
-				}
-			},
+			name:    "Empty config",
+			config:  &Config{},
+			wantErr: true,
 		},
 		{
-			name: "Command Line Args Priority",
-			args: []string{"cmd", "-port", "9090", "-base-path", "/api", "-dir", tempDir},
-			env: map[string]string{
-				"PORT":       "8081",
-				"BASE_PATH":  "/env",
-				"STATIC_DIR": "/env/dir",
+			name: "Valid with EmbedFS",
+			config: &Config{
+				EmbedFSBasePath: "/dist",
 			},
-			validate: func(t *testing.T, cfg *Config, err error) {
-				if cfg.Port != 9090 {
-					t.Errorf("Expected Port 9090, got %d", cfg.Port)
-				}
-				if cfg.BasePath != "/api" {
-					t.Errorf("Expected BasePath '/api', got '%s'", cfg.BasePath)
-				}
-				if cfg.StaticDir != tempDir {
-					t.Errorf("Expected StaticDir '%s', got '%s'", tempDir, cfg.StaticDir)
-				}
-			},
+			wantErr: false,
 		},
 		{
-			name: "Environment Variables Fallback",
-			args: []string{"cmd"},
-			env: map[string]string{
-				"PORT":       "7070",
-				"BASE_PATH":  "/envpath",
-				"STATIC_DIR": tempDir,
+			name: "Valid with Locations",
+			config: &Config{
+				Locations: []location{{Path: "/s", Root: "/r"}},
 			},
-			validate: func(t *testing.T, cfg *Config, err error) {
-				if cfg.Port != 7070 {
-					t.Errorf("Expected Port 7070, got %d", cfg.Port)
-				}
-				if cfg.BasePath != "/envpath" {
-					t.Errorf("Expected BasePath '/envpath', got '%s'", cfg.BasePath)
-				}
-				if cfg.StaticDir != tempDir {
-					t.Errorf("Expected StaticDir '%s', got '%s'", tempDir, cfg.StaticDir)
-				}
-			},
+			wantErr: false,
 		},
 		{
-			name: "Default Values",
-			args: []string{"cmd", "-dir", tempDir},
-			env:  map[string]string{},
-			validate: func(t *testing.T, cfg *Config, err error) {
-				if cfg.Port != defaultPort {
-					t.Errorf("Expected default Port %d, got %d", defaultPort, cfg.Port)
-				}
-				if cfg.BasePath != defaultBasePath {
-					t.Errorf("Expected default BasePath '%s', got '%s'", defaultBasePath, cfg.BasePath)
-				}
+			name: "Missing path in location",
+			config: &Config{
+				Locations: []location{{Path: "", Root: "/r"}},
 			},
+			wantErr: true,
 		},
 		{
-			name: "Flag Dir Not Exists, Fallback to Env Dir",
-			args: []string{"cmd", "-dir", "/invalid/fake/path/123"},
-			env: map[string]string{
-				"STATIC_DIR": tempDir,
+			name: "Duplicate path",
+			config: &Config{
+				Locations: []location{
+					{Path: "/s", Root: "/r1"},
+					{Path: "/s", Root: "/r2"},
+				},
 			},
-			validate: func(t *testing.T, cfg *Config, err error) {
-				if cfg.StaticDir != tempDir {
-					t.Errorf("Expected fallback to env dir '%s', got '%s'", tempDir, cfg.StaticDir)
-				}
-			},
+			wantErr: true,
 		},
 		{
-			name: "Flag Dir empty",
-			args: []string{"cmd", "-dir", ""},
-			env:  map[string]string{},
-			validate: func(t *testing.T, cfg *Config, err error) {
-				if err == nil {
-					t.Errorf("Expected error, got nil")
-				}
+			name: "Duplicate root",
+			config: &Config{
+				Locations: []location{
+					{Path: "/s1", Root: "/r"},
+					{Path: "/s2", Root: "/r"},
+				},
 			},
+			wantErr: true,
 		},
 		{
-			name: "Flag Dir Not Exists, Fallback to Env Dir Not Exists",
-			args: []string{"cmd", "-dir", "/invalid/fake/path/123"},
-			env:  map[string]string{},
-			validate: func(t *testing.T, cfg *Config, err error) {
-				if err == nil {
-					t.Errorf("Expected error, got nil")
-				}
+			name: "Duplicate path with EmbedFS",
+			config: &Config{
+				EmbedFSBasePath: "/static",
+				Locations: []location{
+					{Path: "/static", Root: "/var/www"},
+				},
 			},
-		},
-		{
-			name: "Enable json log format",
-			args: []string{"cmd", "-dir", tempDir},
-			env: map[string]string{
-				"JSON_LOG": "true",
-			},
-			validate: func(t *testing.T, cfg *Config, err error) {
-				if !cfg.EnableJSONLog {
-					t.Errorf("Expected json log format is false, got true")
-				}
-			},
-		},
-		{
-			name: "Flag cache age",
-			args: []string{"cmd", "-dir", tempDir, "-cache-age", "3600"},
-			env: map[string]string{
-				"CACHE_MAX_AGE": "7200",
-			},
-			validate: func(t *testing.T, cfg *Config, err error) {
-				if cfg.CacheMaxAge != 3600 {
-					t.Errorf("Expected cache age 3600, got %d", cfg.CacheMaxAge)
-				}
-			},
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetFlags()
-			os.Args = tt.args
-
-			os.Clearenv()
-			for k, v := range tt.env {
-				t.Setenv(k, v)
+			err := tt.config.validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
-
-			cfg, err := Load()
-			tt.validate(t, cfg, err)
 		})
 	}
 }
 
 func TestIsReleaseVersion(t *testing.T) {
-	versions := []string{
-		"v1.0.0",
-		"v1.0.0-rc1",
-		"v1.0.0-beta",
-		"v1.0.0-alpha",
-		"v1.0.0-alpha.1",
-		"v1.0.0-alpha.2",
-		"prod",
+	tests := []struct {
+		version  string
+		expected bool
+	}{
+		{"prod", true},
+		{"v1.0.0", true},
+		{"v12.34.56", true},
+		{"1.0.0", false},
+		{"dev", false},
+		{"v1.0", false},
+		{"", false},
 	}
-	for _, v := range versions {
-		if IsReleaseVersion(v) {
-			t.Logf("%s is release version", v)
-		} else {
-			t.Logf("%s is not release version", v)
+
+	for _, tt := range tests {
+		if result := IsReleaseVersion(tt.version); result != tt.expected {
+			t.Errorf("IsReleaseVersion(%s) = %v; want %v", tt.version, result, tt.expected)
 		}
+	}
+}
+
+func TestPrintVersion(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	PrintVersion("v1.0.0", "2023-01-01", "abcdef")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	if !strings.Contains(output, "v1.0.0") || !strings.Contains(output, "abcdef") {
+		t.Errorf("PrintVersion output missing info: %s", output)
+	}
+
+	// Test with empty values
+	PrintVersion("", "", "")
+}
+
+func TestLoad(t *testing.T) {
+	// Since Load uses global flag.CommandLine, we need to reset it for testing
+	// and manipulate os.Args
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantPort int
+		wantVer  bool
+		wantErr  bool
+	}{
+		{
+			name:    "Default values (fails validation)",
+			args:    []string{"cmd"},
+			wantErr: true,
+		},
+		{
+			name:    "Version flag",
+			args:    []string{"cmd", "-version"},
+			wantVer: true,
+			wantErr: false,
+		},
+		{
+			name:     "Valid location",
+			args:     []string{"cmd", "--location=/static:/tmp", "--port=9090"},
+			wantPort: 9090,
+			wantErr:  false,
+		},
+		{
+			name:    "Invalid location format",
+			args:    []string{"cmd", "--location=invalid"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset flags
+			flag.CommandLine = flag.NewFlagSet(tt.args[0], flag.ContinueOnError)
+			os.Args = tt.args
+
+			cfg, err := Load()
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Load() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if err == nil {
+				if tt.wantVer && !cfg.ShowVersion {
+					t.Error("Expected ShowVersion to be true")
+				}
+				if tt.wantPort != 0 && cfg.Port != tt.wantPort {
+					t.Errorf("Expected port %d, got %d", tt.wantPort, cfg.Port)
+				}
+			}
+		})
 	}
 }
