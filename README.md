@@ -13,70 +13,71 @@
 
 ---
 
-`stasrv` is a lightweight static file server built on [Gin](https://github.com/gin-gonic/gin) and distributed as a single binary.  
-It can run as a standalone service, easily replacing proxies like Nginx to host front-end static assets (HTML, CSS, JS, images, etc.). It is especially suitable for microservice architectures, containerized deployments, or local development scenarios.
+## Overview
 
-## Features
+`stasrv` is a lightweight, high-performance static file server built on [Hertz](https://github.com/cloudwego/hertz). It serves as a modern alternative to Nginx for hosting frontend assets (HTML, CSS, JS, images, etc.), specifically designed for microservices, containerized environments, and local development.
 
-- **Zero-Dependency Deployment**: Compiles into a single executable binary with no runtime dependencies.
-- **Minimalist Configuration**: Simply specify the static file directory to get started.
-- **Flexible Routing**: Supports custom URL base paths, making it easy to mount the service under a subpath.
-- **Configurable Port**: Defaults to 8080, but can be changed to any port.
-- **Production Ready**: Graceful shutdown, suitable for direct exposure or use behind a reverse proxy.
-- **Lightweight & Efficient**: Powered by Gin's high-performance HTTP engine with minimal resource footprint.
+### Features
+
+-   **Zero-Dependency**: Compiles into a single binary with no runtime dependencies.
+-   **Flexible Routing**: Supports multiple `path:root` mappings to mount assets under different sub-paths.
+-   **High Performance**: Powered by CloudWeGo's Hertz framework, offering extreme concurrency and low resource footprint.
+-   **Built-in Caching**: Easy `Cache-Control` configuration for JS, CSS, images, and fonts.
+-   **Asset Embedding**: Supports embedding static files directly into the binary using `go:embed` for "single-file deployment".
+-   **Docker Ready**: Official lightweight images available for rapid deployment.
+-   **Graceful Shutdown**: Handles OS signals to ensure requests are completed before exiting.
 
 ## Installation
 
+### Via Go
 ```bash
 go install github.com/zhufuyi/stasrv/cmd/stasrv@latest
 ```
+*Ensure `$GOPATH/bin` is in your system's PATH.*
 
-After installation, ensure that `$GOPATH/bin` is added to your system's `PATH` environment variable, then you can run the `stasrv` command directly.
-
-Alternatively, you can download pre-compiled binaries from the [Releases](https://github.com/zhufuyi/stasrv/releases) page.
+### Via Releases
+Download the pre-compiled binaries for your platform from the [Releases](https://github.com/zhufuyi/stasrv/releases) page.
 
 ## Quick Start
 
 ```bash
-# Specify the directory
-stasrv --dir=/var/www/html
+# Map local ./dist directory to the root path /
+stasrv --location=/:./dist
+
+# Map multiple locations
+stasrv --location=/app1:./dist1 --location=/assets:./static
 ```
 
-Open your browser and navigate to `http://localhost:8080` to see your `index.html` page.
+Access your files at `http://localhost:8080/`.
 
-## Command-Line Arguments
+## Command Line Arguments
 
-| **Argument**          | **Type** | **Default** | **Description**                                                                             |
-|-----------------------|----------|-------------|---------------------------------------------------------------------------------------------|
-| `--dir`               | string   |             | Path to the static file root directory (Required)                                           |
-| `--base-path`         | string   | `/`         | Base URL path. For example, `/app` will mount files under `/app/`                           |
-| `--port`              | int      | `8080`      | HTTP service listening port                                                                 |
-| `--enable-list-files` | boolean     | `false`     | Allow access to file list |
-| `--cache-age`         | int      | `0`         | Cache JS, CSS, and image static asset, unit is second, 0 means no cache |
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--location` | string | - | Static asset mapping in `path:root` format (can be used multiple times) |
+| `--port` | int | `8080` | Port to listen on |
+| `--enable-list-files` | bool | `false` | Enable directory listing |
+| `--cache-age` | int | `0` | Cache duration in seconds for assets (0 means no cache) |
+| `--fs-base-path` | string | - | The base URL path when using embedded static files |
 
-Example:
-
+**Example:**
 ```bash
-# Listen on port 3000, static directory set to ./dist, base path set to /app, allow access to file list
-stasrv --dir=./dist --port=3000 --base-path=/app --enable-list-files
+# Listen on port 3000, enable file listing, and set 1-hour browser cache
+stasrv --port=3000 --enable-list-files --cache-age=3600 --location=/docs:./documents
 ```
-
-You can now access your files via `http://localhost:3000/static/`.
 
 ## Docker Deployment
 
-1. Run with Docker CLI
-
+### Docker Run
 ```bash
 docker run -d \
   -p 8080:8080 \
   -v $(pwd)/dist:/app/dist \
   zhufuyi/stasrv:latest \
-  --dir=/app/dist --base-path=/app
+  --location=/my-app:/app/dist
 ```
 
-2. Run with Docker Compose
-
+### Docker Compose
 ```yaml
 services:
   stasrv:
@@ -84,28 +85,39 @@ services:
     restart: unless-stopped
     init: true
     volumes:
-      - /etc/localtime:/etc/localtime:ro     # Host machine timezone
-      - ./dist:/app/dist:ro                        # Map static assets
+      - /etc/localtime:/etc/localtime:ro
+      - ./dist:/app/dist:ro       # Used with location parameter
     command:
-      - "--dir=/app/dist"      # Website static assets path
-      - "--base-path=/app"  # URL prefix
+      # Set static asset mapping in "path:root" format (multiple location supported)
+      - --location=/my-app:/app/dist
+      #- --location=/my-app2:/app/dist2
+      #- --cache-age=2592000   # cache 30 days
 
     ports:
       - 8080:8080
 ```
 
-Run `docker-compose up -d` to start the service.
+## Embedding Static Files
 
-Access `http://localhost:8080/app/` to view the `index.html` page.
+To distribute your application as a single binary containing all assets:
+
+1.  **Prepare Files**: Place your static assets into the `cmd/stasrv/static_dir` directory.
+2.  **Build**: Run `make build` in the project root.
+3.  **Run**: Use the `--fs-base-path` flag to specify the access path.
+    ```bash
+    ./stasrv --fs-base-path=/ui
+    ```
+    Your embedded files will be available at `http://localhost:8080/ui`.
 
 ## Comparison with Nginx
 
-|**Scenario**|**stasrv**|**Nginx**|
-|---|---|---|
-|Installation Size|~10 MB single file|A few MBs + dependencies|
-|Config Complexity|Single command|Requires writing `nginx.conf`|
-|Dynamic Routing|Supported via `--base-path`|Configured via `location` directives|
-|Cache Control|One-click `max-age` configuration|Requires manual `expires` headers|
-|Best Used For|Microservice stasrv, local debugging, containerized environments|General reverse proxy, high concurrency scenarios|
+| Feature | stasrv | Nginx |
+| :--- | :--- | :--- |
+| **Binary Size** | ~10 MB (Single file) | Tens of MBs + Dependencies |
+| **Configuration** | Simple (CLI Flags) | Complex (nginx.conf) |
+| **Deployment** | Extremely Easy (Embedding) | Moderate (Syncing directories) |
+| **Cache Control** | One-click `max-age` | Manual `expires` headers |
+| **Best For** | Microservices, CI/CD, Dev | Complex Proxy, High-traffic Gateway |
 
-`stasrv` is not intended to fully replace Nginx. Instead, it provides a **lighter, zero-configuration** alternative that significantly simplifies deployment in scenarios where complex reverse proxy rules are not required.
+## License
+This project is licensed under the [MIT License](LICENSE).
