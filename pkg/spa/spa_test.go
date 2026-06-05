@@ -4,13 +4,14 @@ import (
 	"embed"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,10 +47,6 @@ const appConfig = {
 	return dir
 }
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
 func TestNormalizeBasePath(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -68,11 +65,6 @@ func TestNormalizeBasePath(t *testing.T) {
 			assert.Equal(t, tt.expected, normalizeBasePath(tt.input))
 		})
 	}
-}
-
-func TestIsExists(t *testing.T) {
-	assert.True(t, isExists("spa.go"))
-	assert.False(t, isExists("non_existent_file_12345.go"))
 }
 
 func Test_Options(t *testing.T) {
@@ -119,7 +111,7 @@ func Test_Options(t *testing.T) {
 func TestNewLocal(t *testing.T) {
 	// Exists dir
 	dir := newTmpDir(t)
-	fe, err := NewLocal(dir, "/app",
+	fe, err := NewLocal("/app", dir,
 		With404ToHome(true),
 		WithListFiles(true),
 		WithCacheMaxAge(86400),
@@ -131,12 +123,12 @@ func TestNewLocal(t *testing.T) {
 	assert.True(t, fe.is404ToHome)
 
 	// Not exists dir
-	_, err = NewLocal("non_existent_dir", "/")
+	_, err = NewLocal("/", "non_existent_dir")
 	assert.Error(t, err)
 }
 
 func TestNewEmbedFS(t *testing.T) {
-	f, err := NewEmbedFS(testEmbedFS, "/app",
+	f, err := NewEmbedFS("/app", testEmbedFS,
 		With404ToHome(false),
 		WithListFiles(false),
 		WithCacheMaxAge(86400),
@@ -150,7 +142,7 @@ func TestNewEmbedFS(t *testing.T) {
 func TestLocalRegister_And_Routing(t *testing.T) {
 	dir := newTmpDir(t)
 
-	fe, err := NewLocal(dir, "/static",
+	static, err := NewLocal("/static", dir,
 		With404ToHome(true),
 		WithCacheMaxAge(86400),
 		WithInjectFileContentByRegular(`<title>.*?</title>`, "<title>golang</title>", "index.html"),
@@ -158,129 +150,98 @@ func TestLocalRegister_And_Routing(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	r := gin.New()
-	err = fe.Register(r)
+	h := server.New()
+	err = static.Register(h)
 	assert.NoError(t, err)
 
 	// Test 1: Fetch existing file directly
-	url := "/static/"
-	req, _ := http.NewRequest("GET", url, nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	w := ut.PerformRequest(h.Engine, "GET", "/static/", nil)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "<h1>Hello World!</h1>")
+	assert.Contains(t, string(w.Body.Bytes()), "<h1>Hello World!</h1>")
 
 	// Test 2: Fetch handled file (config.js)
-	req, _ = http.NewRequest("GET", "/static/config.js", nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	w = ut.PerformRequest(h.Engine, "GET", "/static/config.js", nil)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "/myapp/api") // File should have been modified
+	assert.Contains(t, string(w.Body.Bytes()), "/myapp/api") // File should have been modified
 
-	// Test 4: 404 WITHOUT Accept HTML (Should return standard 404)
-	req, _ = http.NewRequest("GET", "/static/not-exist-route", nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	// Test 3: 404 WITHOUT Accept HTML (Should return standard 404)
+	w = ut.PerformRequest(h.Engine, "GET", "/static/not-exist-route", nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	time.Sleep(15 * time.Second)
 }
 
 func TestHandleNotFound(t *testing.T) {
-	// Test the browserRefreshFS middleware standalone
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
+	h := server.New()
+	h.GET("/test", handleNotFound("testdata/index.html", "/"))
 
-	// Create a fake request with Accept text/html
-	c.Request, _ = http.NewRequest("GET", "/", nil)
-	c.Request.Header.Set("Accept", "text/html")
-
-	handler := handleNotFound("testdata/index.html", "/")
-	handler(c)
+	// Test 1: With Accept text/html
+	w := ut.PerformRequest(h.Engine, "GET", "/test", nil, ut.Header{Key: "Accept", Value: "text/html"})
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "Hello World")
-	assert.Equal(t, "text/html; charset=utf-8", w.Header().Get("Content-Type"))
+	assert.Contains(t, string(w.Body.Bytes()), "Hello World")
+	assert.Equal(t, "text/html; charset=utf-8", string(w.Header().Peek("Content-Type")))
 
-	// Test fallback to 404 if file missing in embedFS
-	w2 := httptest.NewRecorder()
-	c2, _ := gin.CreateTestContext(w2)
-	c2.Request, _ = http.NewRequest("GET", "/", nil)
-	c2.Request.Header.Set("Accept", "text/html")
-
-	handler2 := handleNotFound("non_existent.html", "/")
-	handler2(c2)
+	// Test fallback to 404 if file missing
+	h2 := server.New()
+	h2.GET("/test-missing", handleNotFound("non_existent.html", "/"))
+	w2 := ut.PerformRequest(h2.Engine, "GET", "/test-missing", nil, ut.Header{Key: "Accept", Value: "text/html"})
 
 	assert.Equal(t, http.StatusNotFound, w2.Code)
-	assert.Equal(t, "404 Not Found", w2.Body.String())
+	assert.Equal(t, "404 Not Found", string(w2.Body.Bytes()))
 }
 
 func TestHandleNotFoundFS(t *testing.T) {
-	// Test the browserRefreshFS middleware standalone
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
+	h := server.New()
+	h.GET("/test", handleNotFoundFS(testEmbedFS, "testdata/index.html", "/"))
 
-	// Create a fake request with Accept text/html
-	c.Request, _ = http.NewRequest("GET", "/", nil)
-	c.Request.Header.Set("Accept", "text/html")
-
-	handler := handleNotFoundFS(testEmbedFS, "testdata/index.html", "/")
-	handler(c)
+	// Test 1: With Accept text/html
+	w := ut.PerformRequest(h.Engine, "GET", "/test", nil, ut.Header{Key: "Accept", Value: "text/html"})
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "Hello World")
-	assert.Equal(t, "text/html; charset=utf-8", w.Header().Get("Content-Type"))
+	assert.Contains(t, string(w.Body.Bytes()), "Hello World")
+	assert.Equal(t, "text/html; charset=utf-8", string(w.Header().Peek("Content-Type")))
 
 	// Test fallback to 404 if file missing in embedFS
-	w2 := httptest.NewRecorder()
-	c2, _ := gin.CreateTestContext(w2)
-	c2.Request, _ = http.NewRequest("GET", "/", nil)
-	c2.Request.Header.Set("Accept", "text/html")
-
-	handler2 := handleNotFoundFS(testEmbedFS, "non_existent.html", "/")
-	handler2(c2)
+	h2 := server.New()
+	h2.GET("/test-missing", handleNotFoundFS(testEmbedFS, "non_existent.html", "/"))
+	w2 := ut.PerformRequest(h2.Engine, "GET", "/test-missing", nil, ut.Header{Key: "Accept", Value: "text/html"})
 
 	assert.Equal(t, http.StatusNotFound, w2.Code)
-	assert.Equal(t, "404 Not Found", w2.Body.String())
+	assert.Equal(t, "404 Not Found", string(w2.Body.Bytes()))
 }
 
 func TestEmbedFSRegister_Direct(t *testing.T) {
-	f, err := NewEmbedFS(testEmbedFS, "/app")
+	f, err := NewEmbedFS("/app", testEmbedFS)
 	require.NoError(t, err)
 
-	r := gin.New()
-	err = f.Register(r)
+	h := server.New()
+	err = f.Register(h)
 	assert.NoError(t, err)
 
 	// Request an embedded file
-	req, _ := http.NewRequest("GET", "/app/", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	w := ut.PerformRequest(h.Engine, "GET", "/app/", nil)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "Hello World")
+	assert.Contains(t, string(w.Body.Bytes()), "Hello World")
 
-	req, _ = http.NewRequest("GET", "/not-exist-path", nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	w = ut.PerformRequest(h.Engine, "GET", "/not-exist-path", nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestEmbedFS_Register_WithInjectFileContent(t *testing.T) {
-	fe, err := NewEmbedFS(testEmbedFS, "/app",
+	fe, err := NewEmbedFS("/app", testEmbedFS,
 		WithInjectFileContentByString("Hello World", "Hello World", "index.html"),
 	)
 	require.NoError(t, err)
 
-	r := gin.New()
-	err = fe.Register(r)
+	h := server.New()
+	err = fe.Register(h)
 	assert.NoError(t, err)
 
 	// Request an embedded file
-	req, _ := http.NewRequest("GET", "/app/", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	w := ut.PerformRequest(h.Engine, "GET", "/app/", nil)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "Hello World")
+	assert.Contains(t, string(w.Body.Bytes()), "Hello World")
 }
 
 func TestWithCacheMaxAge(t *testing.T) {
@@ -571,4 +532,65 @@ func buildCacheControlHeader(cacheMaxAge int, filePath string) string {
 	}
 
 	return ""
+}
+
+func TestGetMimeType(t *testing.T) {
+	tests := []struct {
+		name string
+		ext  string
+		want string
+	}{
+		// HTML
+		{name: "html lower", ext: ".html", want: "text/html; charset=utf-8"},
+		{name: "html upper", ext: ".HTML", want: "text/html; charset=utf-8"},
+		{name: "html mixed", ext: ".HtMl", want: "text/html; charset=utf-8"},
+		// CSS
+		{name: "css lower", ext: ".css", want: "text/css; charset=utf-8"},
+		{name: "css upper", ext: ".CSS", want: "text/css; charset=utf-8"},
+		// JavaScript
+		{name: "js lower", ext: ".js", want: "application/javascript; charset=utf-8"},
+		{name: "js upper", ext: ".JS", want: "application/javascript; charset=utf-8"},
+		// JSON
+		{name: "json lower", ext: ".json", want: "application/json; charset=utf-8"},
+		{name: "json upper", ext: ".JSON", want: "application/json; charset=utf-8"},
+		// PNG
+		{name: "png lower", ext: ".png", want: "image/png"},
+		{name: "png upper", ext: ".PNG", want: "image/png"},
+		// JPEG
+		{name: "jpg lower", ext: ".jpg", want: "image/jpeg"},
+		{name: "jpg upper", ext: ".JPG", want: "image/jpeg"},
+		{name: "jpeg lower", ext: ".jpeg", want: "image/jpeg"},
+		{name: "jpeg upper", ext: ".JPEG", want: "image/jpeg"},
+		// GIF
+		{name: "gif lower", ext: ".gif", want: "image/gif"},
+		{name: "gif upper", ext: ".GIF", want: "image/gif"},
+		// SVG
+		{name: "svg lower", ext: ".svg", want: "image/svg+xml"},
+		{name: "svg upper", ext: ".SVG", want: "image/svg+xml"},
+		// ICO
+		{name: "ico lower", ext: ".ico", want: "image/x-icon"},
+		{name: "ico upper", ext: ".ICO", want: "image/x-icon"},
+		// WebP
+		{name: "webp lower", ext: ".webp", want: "image/webp"},
+		{name: "webp upper", ext: ".WEBP", want: "image/webp"},
+		// Default cases
+		{name: "unknown ext", ext: ".xyz", want: "application/octet-stream"},
+		{name: "no dot", ext: "html", want: "application/octet-stream"},
+		{name: "empty string", ext: "", want: "application/octet-stream"},
+		{name: "only dot", ext: ".", want: "application/octet-stream"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := getMimeType(tt.ext); got != tt.want {
+				t.Errorf("getMimeType(%q) = %q, want %q", tt.ext, got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_countEmbedFS(t *testing.T) {
+	n, err := countEmbedFS(testEmbedFS)
+	assert.Nil(t, err)
+	t.Log(n)
 }
