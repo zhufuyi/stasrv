@@ -1,6 +1,6 @@
 FROM golang:1.25-alpine AS builder
 
-RUN apk add git upx
+RUN apk add git
 
 WORKDIR /build
 COPY go.mod go.sum ./
@@ -10,8 +10,8 @@ RUN go mod download
 COPY . .
 
 RUN set -eux; \
-    SERVER_NAME="stasrv"; \
-    BUILD_DIR="cmd/${SERVER_NAME}"; \
+    SERVICE_NAME="stasrv"; \
+    BUILD_DIR="cmd/${SERVICE_NAME}"; \
     VERSION="dev"; \
     COMMIT="none"; \
     BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ'); \
@@ -22,7 +22,7 @@ RUN set -eux; \
     fi; \
     \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-        -o "${SERVER_NAME}" \
+        -o "${SERVICE_NAME}" \
         -trimpath \
         -ldflags "\
         -w -s \
@@ -30,9 +30,6 @@ RUN set -eux; \
         -X main.buildTime=${BUILD_TIME} \
         -X main.commit=${COMMIT}" \
         ./${BUILD_DIR}
-
-#compressing binary files
-RUN upx -5 /build/stasrv
 
 
 FROM alpine:3.22
@@ -48,6 +45,9 @@ USER app
 
 EXPOSE 8080
 
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget -q --spider http://127.0.0.1:8080/health
+
 # in /app directory
 ENTRYPOINT ["./stasrv"]
-#CMD ["--static-dir", "/app/dist", "--base-path","/"]
+#CMD ["--location", "/my-app:/app/dist", "--location", "/my-app2:/app/dist2"]

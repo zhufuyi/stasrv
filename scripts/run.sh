@@ -7,13 +7,11 @@ SERVICE_NAME=${SERVICE_NAME:-stasrv}
 # ------------------------------------------
 # configuration
 # ------------------------------------------
-BINARY_FILE="cmd/${SERVICE_NAME}/${SERVICE_NAME}"
+BINARY_FILE="cmd/${SERVICE_NAME}/${SERVICE_NAME}$(go env GOEXE)"
 BUILD=${BUILD:-true}
 
-DIR=${DIR:-}
-BASE_PATH=${BASE_PATH:-/}
+LOCATION=${LOCATION:-}
 PORT=${PORT:-8080}
-#CONFIG_FILE=${CONFIG:-}
 
 # ------------------------------------------
 # build step
@@ -34,4 +32,4 @@ fi
 # ------------------------------------------
 # run server
 # ------------------------------------------
-"./$BINARY_FILE" --dir="$DIR" --base-path="$BASE_PATH" --port="$PORT"
+"./$BINARY_FILE" --location="$LOCATION" --port="$PORT"

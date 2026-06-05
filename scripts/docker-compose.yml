@@ -4,11 +4,12 @@ services:
     restart: unless-stopped
     init: true
     volumes:
-      - /etc/localtime:/etc/localtime:ro     # 宿主机时区
-      - ./dist:/app/dist:ro                        # 映射静态资源
+      - /etc/localtime:/etc/localtime:ro
+      - ./dist:/app/dist:ro       # Map directory
     command:
-      - "--dir=/app/dist"      # 网站静态资源路径
-      #- "--base-path=/"      # url 前缀，默认是 /
+      # Set --location flag value, static assets mapping in 'path:root' format, can be multiple locations
+      - --location=/your-base-path:/app/dist
+      #- --location=/your-base-path2:/app/dist2
 
     ports:
       - 8080:8080

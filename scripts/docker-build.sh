@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-SERVER_NAME=${SERVER_NAME:-stasrv}
+SERVICE_NAME=${SERVICE_NAME:-stasrv}
 
 # ------------------------------------------------------------
 # parameter analyzing
@@ -15,7 +15,7 @@ CONTEXT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)" # Build context directory (same leve
 # get image name from env first
 IMAGE_NAME="${IMAGE_NAME:-}"
 if [[ -z "$IMAGE_NAME" ]]; then
-    IMAGE_NAME=${SERVER_NAME}
+    IMAGE_NAME=${SERVICE_NAME}
 fi
 
 REGISTRY="${1:-}"

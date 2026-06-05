@@ -2,14 +2,14 @@
 
 set -euo pipefail
 
-SERVER_NAME=${SERVER_NAME:-stasrv}
+SERVICE_NAME=${SERVICE_NAME:-stasrv}
 
 # ------------------------------------------------
 # build configuration
 # ------------------------------------------------
 
-BUILD_DIR="cmd/${SERVER_NAME}"
-FILE_NAME="${SERVER_NAME}$(go env GOEXE)"
+BUILD_DIR="cmd/${SERVICE_NAME}"
+FILE_NAME="${SERVICE_NAME}$(go env GOEXE)"
 GO_VERSION=$(go env GOVERSION)
 GOOS=${GOOS:-$(go env GOOS)}
 GOARCH=${GOARCH:-$(go env GOARCH)}
@@ -39,12 +39,13 @@ echo ""
 
 GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build \
   -o "${BUILD_DIR}/$FILE_NAME" \
+  -trimpath \
   -ldflags " \
-  -w \
+  -w -s \
   -X main.version=$VERSION \
   -X main.buildTime=$BUILD_TIME \
   -X main.commit=$COMMIT" \
-  "$BUILD_DIR/main.go"
+  "./${BUILD_DIR}"
 
 echo "Build completed successfully."
 echo ""

@@ -47,17 +47,15 @@ build:
 .PHONY: run
 # Build and run the service locally.
 # Parameters:
-#   DIR      : Directory of static web files.
-#   BASE_PATH: Base path of the service, default /.
-#   PORT     : Port to run the service on, default 8080.
-#   BUILD    : Build the service binary, default true.
+#   LOCATION   : Static assets mapping in 'path:root' format.
+#   PORT       : Port to run the service on, default 8080.
+#   BUILD      : Build the service binary, default true.
 # Examples:
-#   make run DIR=/path/to/web/static/dir
-#   make run DIR=/path/to/web/static/dir BASE_PATH=/url/prefix/path
-#   make run DIR=/path/to/web/static/dir BUILD=false
+#   make run LOCATION=/assets:/var/www/assets
+#   make run DIR=/assets:/var/www/assets BUILD=false
 run:
-	@if [ -z "$(DIR)" ]; then \
-		echo "Error: DIR is required. Usage: make run DIR=/path/to/web/static/dir"; \
+	@if [ -z "$(LOCATION)" ]; then \
+		echo "Error: LOCATION is required. Usage: make run LOCATION=/assets:/var/www/assets"; \
 		exit 1; \
 	fi
 	@MSYS_NO_PATHCONV=1 bash scripts/run.sh $(DIR) $(BASE_PATH)
