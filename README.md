@@ -23,9 +23,9 @@
 -   **Flexible Routing**: Supports multiple `path:root` mappings to mount assets under different sub-paths.
 -   **High Performance**: Powered by CloudWeGo's Hertz framework, offering extreme concurrency and low resource footprint.
 -   **Built-in Caching**: Easy `Cache-Control` configuration for JS, CSS, images, and fonts.
+-   **Adaptive gzip compression**: Enable gzip pre-compression adaptively according to directory permissions.
 -   **Asset Embedding**: Supports embedding static files directly into the binary using `go:embed` for "single-file deployment".
 -   **Docker Ready**: Official lightweight images available for rapid deployment.
--   **Graceful Shutdown**: Handles OS signals to ensure requests are completed before exiting.
 
 ## Installation
 

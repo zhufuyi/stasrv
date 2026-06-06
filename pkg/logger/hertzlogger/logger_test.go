@@ -2,13 +2,13 @@ package hertzlogger
 
 import (
 	"context"
-	"github.com/zhufuyi/stasrv/pkg/trace/integration/hertztrace"
 	"io"
 	"testing"
 
 	"go.uber.org/zap/zapcore"
 
 	"github.com/zhufuyi/stasrv/pkg/logger"
+	"github.com/zhufuyi/stasrv/pkg/trace/integration/hertztrace"
 )
 
 func TestMain(m *testing.M) {

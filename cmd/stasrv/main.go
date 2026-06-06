@@ -84,9 +84,9 @@ func registerStaticFile(cfg *config.Config, h *server.Hertz) error {
 			return err
 		}
 		if err = srv.Register(h); err != nil {
-			return fmt.Errorf("register '%s -> %s' error: %v", srv.GetBasePath(), srv.GetLocalDir(), err)
+			return fmt.Errorf("register '%s' -> '%s' error: %v", srv.GetBasePath(), srv.GetLocalDir(), err)
 		}
-		logger.Infof("register static file '%s -> %s' success", srv.GetBasePath(), srv.GetLocalDir())
+		logger.Infof("register local file '%s' -> '%s' successfully", srv.GetBasePath(), srv.GetLocalDir())
 	}
 
 	if cfg.EmbedFSBasePath != "" {
@@ -95,9 +95,9 @@ func registerStaticFile(cfg *config.Config, h *server.Hertz) error {
 			return err
 		}
 		if err = srv.Register(h); err != nil {
-			return fmt.Errorf("register embed file '%s -> %s' error: %v", srv.GetBasePath(), srv.GetLocalDir(), err)
+			return fmt.Errorf("register embed file '%s' -> '%s' error: %v", srv.GetBasePath(), srv.GetLocalDir(), err)
 		}
-		logger.Infof("register embed file '%s -> %s' success", srv.GetBasePath(), srv.GetLocalDir())
+		logger.Infof("register embed file '%s' -> '%s' successfully", srv.GetBasePath(), srv.GetLocalDir())
 	}
 
 	return nil

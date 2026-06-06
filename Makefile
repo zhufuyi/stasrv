@@ -52,7 +52,7 @@ build:
 #   BUILD      : Build the service binary, default true.
 # Examples:
 #   make run LOCATION=/assets:/var/www/assets
-#   make run DIR=/assets:/var/www/assets BUILD=false
+#   make run LOCATION=/assets:/var/www/assets BUILD=false
 run:
 	@if [ -z "$(LOCATION)" ]; then \
 		echo "Error: LOCATION is required. Usage: make run LOCATION=/assets:/var/www/assets"; \
