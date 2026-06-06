@@ -122,6 +122,9 @@ type Server struct {
 
 	// static file cache seconds, 0 means disable cache
 	cacheMaxAge int
+
+	// adaptively turn compression on and off according to localDir permissions
+	enableGzip bool
 }
 
 func NewLocal(basePath string, localDir string, opts ...Option) (*Server, error) {
@@ -137,6 +140,7 @@ func NewLocal(basePath string, localDir string, opts ...Option) (*Server, error)
 		is404ToHome:          o.is404ToHome,
 		enableListFiles:      o.enableListFiles,
 		cacheMaxAge:          o.cacheMaxAge,
+		enableGzip:           isWritable(localDir),
 	}, nil
 }
 
@@ -202,6 +206,10 @@ func (s *Server) localRegister(h *server.Hertz) {
 	handlerFunc := func(ctx context.Context, c *app.RequestContext) {
 		filePath := c.Param("filepath")
 		fullPath := filepath.Join(s.localDir, filepath.Clean(filePath))
+
+		if !s.enableGzip {
+			c.Request.Header.Del("Accept-Encoding")
+		}
 
 		// Security check
 		if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(s.localDir)) {
@@ -529,4 +537,22 @@ func getMimeType(ext string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+func isWritable(dir string) bool {
+	testFile := filepath.Join(dir, ".write_test")
+
+	f, err := os.OpenFile(
+		testFile,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		0o644,
+	)
+	if err != nil {
+		return false
+	}
+
+	_ = f.Close()
+	_ = os.Remove(testFile)
+
+	return true
 }
