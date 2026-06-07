@@ -1,4 +1,10 @@
+# ==================== Build ====================
+
 FROM golang:1.25-alpine AS builder
+
+# Target platform variables receiving BuildKit auto-injection
+ARG TARGETOS
+ARG TARGETARCH
 
 RUN apk add git
 
@@ -11,7 +17,7 @@ COPY . .
 
 RUN set -eux; \
     SERVICE_NAME="stasrv"; \
-    BUILD_DIR="cmd/${SERVICE_NAME}"; \
+    MAIN_DIR="cmd/${SERVICE_NAME}"; \
     VERSION="dev"; \
     COMMIT="none"; \
     BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ'); \
@@ -21,21 +27,18 @@ RUN set -eux; \
         COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none"); \
     fi; \
     \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    LDFLAGS="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.commit=${COMMIT}"; \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
         -o "${SERVICE_NAME}" \
+        -ldflags "${LDFLAGS}" \
         -trimpath \
-        -ldflags "\
-        -w -s \
-        -X main.version=${VERSION} \
-        -X main.buildTime=${BUILD_TIME} \
-        -X main.commit=${COMMIT}" \
-        ./${BUILD_DIR}
+        ./${MAIN_DIR}
 
 
 FROM alpine:3.22
 
 RUN apk add --no-cache ca-certificates tzdata \
- && addgroup -S -g 1000 app && adduser -S -D -H -u 1000 -G app app
+ && addgroup -S -g 10000 app && adduser -S -D -H -u 10000 -G app app
 
 WORKDIR /app
 
