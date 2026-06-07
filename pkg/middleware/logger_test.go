@@ -113,18 +113,6 @@ func TestWithIgnoreRoutes(t *testing.T) {
 	assert.Len(t, opts.ignoreRoutes, 2)
 }
 
-func TestWithZapLogger(t *testing.T) {
-	custom := zap.NewNop()
-	opts := &accessLogOptions{log: nil}
-	WithZapLogger(custom)(opts)
-	assert.Same(t, custom, opts.log)
-
-	// nil should be ignored
-	prev := opts.log
-	WithZapLogger(nil)(opts)
-	assert.Same(t, prev, opts.log)
-}
-
 func TestApplyOptions(t *testing.T) {
 	o := defaultAccessLogOptions()
 	originalLogger := o.log
@@ -436,7 +424,7 @@ func TestAccessLog_CustomLogger(t *testing.T) {
 	logger1 := zap.New(core1)
 
 	r := server.New()
-	r.Use(AccessLog(WithZapLogger(logger1)))
+	r.Use(AccessLog(WithLogger(logger1)))
 	r.GET("/test", func(_ context.Context, ctx *app.RequestContext) {
 		ctx.String(http.StatusOK, "test")
 	})

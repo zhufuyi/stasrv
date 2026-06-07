@@ -107,14 +107,6 @@ func WithIgnoreRoutes(routes ...string) AccessLogOption {
 	}
 }
 
-func WithZapLogger(log *zap.Logger) AccessLogOption {
-	return func(o *accessLogOptions) {
-		if log != nil {
-			o.log = log
-		}
-	}
-}
-
 // -------------------------------------------------------------------------------
 
 // AccessLog hertz access log middleware.
