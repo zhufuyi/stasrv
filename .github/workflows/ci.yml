@@ -40,7 +40,7 @@ jobs:
           install-only: true
 
       - name: Run lint
-        run: make ci-lint
+        run: make lint
 
       #- name: Run test
       #  run: make test
