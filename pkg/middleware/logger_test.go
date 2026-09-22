@@ -187,7 +187,7 @@ func TestAccessLog_IgnoreRoutes(t *testing.T) {
 	executeRequest(r, "GET", "/api", nil)
 	entries := recorded.All()
 	assert.NotEmpty(t, entries, "non-ignored route should produce logs")
-	assert.Equal(t, "http access", entries[0].Message)
+	assert.Equal(t, "http success", entries[0].Message)
 }
 
 func TestAccessLog_DefaultIgnoreRoutes(t *testing.T) {
@@ -306,21 +306,21 @@ func TestAccessLog_LogLevelsAndMinStatusCode(t *testing.T) {
 	entries := recorded.TakeAll()
 	require.Len(t, entries, 1)
 	assert.Equal(t, zapcore.InfoLevel, entries[0].Level)
-	assert.Equal(t, "http access", entries[0].Message)
+	assert.Equal(t, "http success", entries[0].Message)
 
 	// Bad Request -> Warn
 	executeRequest(r, "GET", "/bad", nil)
 	entries = recorded.TakeAll()
 	require.Len(t, entries, 1)
 	assert.Equal(t, zapcore.WarnLevel, entries[0].Level)
-	assert.Equal(t, "http access", entries[0].Message)
+	assert.Equal(t, "http client error", entries[0].Message)
 
 	// Internal Server Error -> Error
 	executeRequest(r, "GET", "/err", nil)
 	entries = recorded.TakeAll()
 	require.Len(t, entries, 1)
 	assert.Equal(t, zapcore.ErrorLevel, entries[0].Level)
-	assert.Equal(t, "http access", entries[0].Message)
+	assert.Equal(t, "http server error", entries[0].Message)
 }
 
 func TestAccessLog_SlowRequestLogLevel(t *testing.T) {
@@ -335,7 +335,7 @@ func TestAccessLog_SlowRequestLogLevel(t *testing.T) {
 	require.NotEmpty(t, entries)
 	// It should be a warn log because of latency
 	assert.Equal(t, zapcore.WarnLevel, entries[0].Level)
-	assert.Equal(t, "slow request", entries[0].Message)
+	assert.Equal(t, "http slow", entries[0].Message)
 }
 
 func TestAccessLog_MinStatusCodeFilter(t *testing.T) {
@@ -368,7 +368,7 @@ func TestAccessLog_SlowOverridesMinStatusCode(t *testing.T) {
 	entries := recorded.All()
 	require.NotEmpty(t, entries, "slow request should be logged even if status < minStatusCode")
 	assert.Equal(t, zapcore.WarnLevel, entries[0].Level)
-	assert.Equal(t, "slow request", entries[0].Message)
+	assert.Equal(t, "http slow", entries[0].Message)
 }
 
 func TestAccessLog_StatusCodeThresholds(t *testing.T) {
@@ -383,24 +383,28 @@ func TestAccessLog_StatusCodeThresholds(t *testing.T) {
 	entries := recorded.TakeAll()
 	require.Len(t, entries, 1)
 	assert.Equal(t, zapcore.InfoLevel, entries[0].Level)
+	assert.Equal(t, "http success", entries[0].Message)
 
 	// 400 -> Warn
 	executeRequest(r, "GET", "/400", nil)
 	entries = recorded.TakeAll()
 	require.Len(t, entries, 1)
 	assert.Equal(t, zapcore.WarnLevel, entries[0].Level)
+	assert.Equal(t, "http client error", entries[0].Message)
 
 	// 499 -> Warn (since < 500)
 	executeRequest(r, "GET", "/499", nil)
 	entries = recorded.TakeAll()
 	require.Len(t, entries, 1)
 	assert.Equal(t, zapcore.WarnLevel, entries[0].Level)
+	assert.Equal(t, "http client error", entries[0].Message)
 
 	// 500 -> Error
 	executeRequest(r, "GET", "/500", nil)
 	entries = recorded.TakeAll()
 	require.Len(t, entries, 1)
 	assert.Equal(t, zapcore.ErrorLevel, entries[0].Level)
+	assert.Equal(t, "http server error", entries[0].Message)
 }
 
 func TestAccessLog_CombinedSlowAndErrorStatus(t *testing.T) {
@@ -413,9 +417,9 @@ func TestAccessLog_CombinedSlowAndErrorStatus(t *testing.T) {
 	executeRequest(r, "GET", "/slow-500", nil)
 	entries := recorded.All()
 	require.NotEmpty(t, entries)
-	// Because the switch evaluates status >= 500 first, it should be Error, not Warn for slow
+	// the status is checked before the latency, so a slow 5xx is reported as a server error
 	assert.Equal(t, zapcore.ErrorLevel, entries[0].Level)
-	assert.Equal(t, "http access", entries[0].Message)
+	assert.Equal(t, "http server error", entries[0].Message)
 }
 
 // TestAccessLog_CustomLogger verifies that WithZapLogger replaces the logger correctly.

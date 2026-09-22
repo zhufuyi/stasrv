@@ -152,15 +152,19 @@ func AccessLog(opts ...AccessLogOption) app.HandlerFunc {
 			zap.Int("size", len(c.Response.Body())),
 		}
 
-		switch {
-		case status >= consts.StatusInternalServerError:
-			accessLog.Error("http access", fields...)
-		case status >= consts.StatusBadRequest:
-			accessLog.Warn("http access", fields...)
-		case latency >= o.slowThreshold:
-			accessLog.Warn("slow request", fields...)
-		default:
-			accessLog.Info("http access", fields...)
+		if status < consts.StatusBadRequest {
+			// 2xx/3xx
+			if latency < o.slowThreshold {
+				accessLog.Info("http success", fields...)
+			} else {
+				accessLog.Warn("http slow", fields...)
+			}
+		} else if status < consts.StatusInternalServerError {
+			// 4xx
+			accessLog.Warn("http client error", fields...)
+		} else {
+			// 5xx
+			accessLog.Error("http server error", fields...)
 		}
 	}
 }

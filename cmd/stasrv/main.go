@@ -48,6 +48,8 @@ func main() {
 	if config.IsReleaseVersion(version) {
 		opts = append(opts, server.WithDisablePrintRoute(true))
 	}
+	// the request body of an upload carries the file itself
+	opts = append(opts, server.WithMaxRequestBodySize(int(cfg.UploadMaxBytes())))
 	h := server.New(opts...)
 	hlog.SetLogger(hertzlogger.NewHertzLogger())
 	h.Use(middleware.AccessLog(middleware.WithLogger(logger.Get())))
@@ -76,6 +78,7 @@ func registerStaticFile(cfg *config.Config, h *server.Hertz) error {
 		spa.With404ToHome(true),
 		spa.WithListFiles(cfg.EnableListFiles),
 		spa.WithCacheMaxAge(cfg.CacheMaxAge),
+		spa.WithUploadMaxSize(cfg.UploadMaxBytes()),
 	}
 
 	for _, location := range cfg.Locations {
@@ -86,7 +89,7 @@ func registerStaticFile(cfg *config.Config, h *server.Hertz) error {
 		if err = srv.Register(h); err != nil {
 			return fmt.Errorf("register '%s' -> '%s' error: %v", srv.GetBasePath(), srv.GetLocalDir(), err)
 		}
-		logger.Infof("register local file '%s' -> '%s' successfully", srv.GetBasePath(), srv.GetLocalDir())
+		logger.Infof("register local file '%s' -> '%s' successfully%s", srv.GetBasePath(), srv.GetLocalDir(), apiInfo(srv))
 	}
 
 	if cfg.EmbedFSBasePath != "" {
@@ -97,8 +100,14 @@ func registerStaticFile(cfg *config.Config, h *server.Hertz) error {
 		if err = srv.Register(h); err != nil {
 			return fmt.Errorf("register embed file '%s' -> '%s' error: %v", srv.GetBasePath(), srv.GetLocalDir(), err)
 		}
-		logger.Infof("register embed file '%s' -> '%s' successfully", srv.GetBasePath(), srv.GetLocalDir())
+		logger.Infof("register embed file '%s' -> '%s' successfully%s", srv.GetBasePath(), srv.GetLocalDir(), apiInfo(srv))
 	}
 
 	return nil
+}
+
+// apiInfo describes the upload and delete APIs of a location for the startup log.
+func apiInfo(srv *spa.Server) string {
+	return fmt.Sprintf(", upload API 'POST %s' -> '%s', delete API 'DELETE %s'",
+		srv.GetUploadRoute(), srv.GetUploadDir(), srv.GetDeleteRoute())
 }

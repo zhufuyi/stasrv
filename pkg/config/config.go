@@ -11,7 +11,11 @@ import (
 	"strings"
 )
 
-const defaultPort = 8080
+const (
+	defaultPort = 8080
+	// defaultUploadMaxSize is the default cap of a single uploaded file, in megabytes.
+	defaultUploadMaxSize = 32
+)
 
 // Config Defines the common configuration of Web services
 type Config struct {
@@ -21,7 +25,10 @@ type Config struct {
 	EmbedFSBasePath string `json:"embed_fs_base_path"`
 	CacheMaxAge     int    `json:"cache_max_age"`
 	EnableListFiles bool   `json:"enable_list_files"`
-	ShowVersion     bool   `json:"-"`
+
+	UploadMaxSize int `json:"upload_max_size"` // maximum size of an uploaded file and of the upload request body, in megabytes
+
+	ShowVersion bool `json:"-"`
 }
 
 // Load Parses and loads service configuration
@@ -39,6 +46,7 @@ func Load() (*Config, error) {
 	flag.BoolVar(&showVersion, "version", false, "Print version")
 	flag.IntVar(&cfg.Port, "port", defaultPort, "Server listen port")
 	flag.BoolVar(&cfg.EnableListFiles, "enable-list-files", false, "Allow access to file list")
+	flag.IntVar(&cfg.UploadMaxSize, "upload-max-size", defaultUploadMaxSize, "Maximum size of an uploaded file and of the upload request body, unit is MB")
 	flag.IntVar(&cfg.CacheMaxAge, "cache-age", 0, "Cache JS, CSS, and image static asset, unit is second, 0 means no cache")
 	flag.StringVar(&cfg.EmbedFSBasePath, "fs-base-path", "", "Embed FS base path. Copy files to ./embedded_dir and run 'make build'")
 
@@ -60,6 +68,10 @@ func Load() (*Config, error) {
 
 // check the effectiveness of flags
 func (c *Config) validate() error {
+	if c.UploadMaxSize < 0 {
+		return fmt.Errorf("upload max size must not be negative, current value: %d", c.UploadMaxSize)
+	}
+
 	if len(c.Locations) == 0 {
 		if c.EmbedFSBasePath == "" {
 			return fmt.Errorf("no static file mapping found, usage: ./stasrv --location=/assets:/var/www/assets")
@@ -92,6 +104,15 @@ func (c *Config) validate() error {
 	}
 
 	return nil
+}
+
+// UploadMaxBytes returns the maximum size of an uploaded file in bytes, the default
+// applies when the option is not set.
+func (c *Config) UploadMaxBytes() int64 {
+	if c.UploadMaxSize <= 0 {
+		return int64(defaultUploadMaxSize) << 20
+	}
+	return int64(c.UploadMaxSize) << 20
 }
 
 // ----------------------------------------------------------

@@ -24,6 +24,7 @@
 -   **高性能引擎**：基于 CloudWeGo 的 Hertz 框架，具备极高的并发处理能力和极低的资源占用。
 -   **内置缓存优化**：支持针对 JS、CSS、图片、字体等资源的 `Cache-Control` 设置。
 -   **自适应 gzip 压缩**：根据目录权限自适应开启gzip预压缩。
+-   **文件上传与删除接口**：通过 `POST <path>/upload` 接收文件并保存到 location 的 `data` 目录，可用 `DELETE <path>/delete/<文件>` 删除。
 -   **静态资源嵌入**：支持将所有静态文件直接编译进二进制文件，实现真正的“单文件分发”。
 -   **Docker 友好**：提供官方镜像，支持快速容器化部署。
 
@@ -59,11 +60,83 @@ stasrv --location=/my-app:./dist
 | `--enable-list-files` | bool | `false` | 是否允许列出目录下的文件列表 |
 | `--cache-age` | int | `0` | 静态资源缓存时间（秒），0 表示不缓存 |
 | `--fs-base-path` | string | - | 开启嵌入文件功能后的访问基础路径 |
+| `--upload-max-size` | int | `32` | 单个上传文件以及上传请求体的大小上限，单位 MB |
 
 **示例：**
 ```bash
 # 监听 3000 端口，允许列出文件，并设置 1 小时浏览器缓存
 stasrv --port=3000 --enable-list-files --cache-age=3600 --location=/docs:./documents
+```
+
+## 文件上传与删除接口
+
+每个 location 在静态文件之外都会提供上传和删除两个接口，无需额外开关，`--location` 与
+`--fs-base-path` 两种方式启动的服务都一样。路由前缀与该 location 的 `path` 一致：
+
+| location | 上传路由 | 删除路由 | 保存目录 | 访问地址 |
+| :--- | :--- | :--- | :--- | :--- |
+| `--location=/docs:/app/dist` | `POST /docs/upload` | `DELETE /docs/delete/<文件>` | `/app/dist/data` | `/docs/data/<文件>` |
+| `--location=/:./dist` | `POST /upload` | `DELETE /delete/<文件>` | `./dist/data` | `/data/<文件>` |
+| `--fs-base-path=/embed` | `POST /embed/upload` | `DELETE /embed/delete/<文件>` | `<可执行文件所在目录>/data` | `/embed/data/<文件>` |
+
+嵌入到二进制中的文件是只读的，所以 `--fs-base-path` 类型收到的文件保存在 `stasrv` 可执行文件同级的
+`data` 目录，该目录在启动时创建。
+
+### 上传
+
+文件放在表单字段 `file` 中；同一个请求重复提交该字段即可一次上传多个文件。文件只保留客户端送来的
+文件名最后一段（路径部分会被丢弃），同名文件会被覆盖。
+
+```bash
+# 上传单个文件，例如 data.json、report.pdf、picture.jpg
+curl -F "file=@data.json" http://localhost:8080/docs/upload
+
+# 一次上传多个文件
+curl -F "file=@data.json" -F "file=@report.pdf" -F "file=@picture.jpg" http://localhost:8080/docs/upload
+```
+
+```json
+{
+  "files": [
+    {"name": "data.json", "size": 15, "url": "/docs/data/data.json"},
+    {"name": "report.pdf", "size": 4096, "url": "/docs/data/report.pdf"}
+  ]
+}
+```
+
+上传完成后即可通过返回的 `url` 直接访问该文件，缓存策略与其他静态文件一样受 `--cache-age` 控制。
+
+返回码：`200` 上传成功，`400` 不是 multipart 请求 / 缺少 `file` 字段 / 文件名不可用，
+`413` 超过 `--upload-max-size` 限制，`500` 文件写入失败。
+
+### 删除
+
+一个请求删除一个文件，文件名写在 URL 里：
+
+```bash
+curl -X DELETE http://localhost:8080/docs/delete/data.json
+```
+
+```json
+{
+  "name": "data.json",
+  "deleted": true
+}
+```
+
+文件名只在 `data` 目录内解析，因此该接口删不掉 location 自身的静态文件，目录也不会被删。
+
+返回码：`200` 删除成功，`400` 文件名不可用 / 该名字是一个目录，`404` 文件不存在。
+
+> **注意：** 两个接口都没有鉴权，并且会向挂载的目录写文件，请只在可信网络中使用，或放在有限制访问的
+> 反向代理之后。服务的请求体上限会一并提升为 `--upload-max-size`，因为上传的文件就在请求体里。
+
+仓库自带一个测试页面 `web/dist/index.html`，它会按自身所在的 URL 前缀推导出上传接口、删除接口和文件
+地址，并在删除后回访文件地址确认已返回 404：
+
+```bash
+go run ./cmd/stasrv --location=/test:./web/dist
+# 浏览器打开 http://localhost:8080/test/ 即可上传文件、读取内容并删除文件
 ```
 
 ## Docker 部署

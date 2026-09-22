@@ -123,6 +123,21 @@ func TestConfigValidate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "Negative upload max size",
+			config: &Config{
+				UploadMaxSize: -1,
+				Locations:     []location{{Path: "/s", Root: "/r"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Upload max size not set",
+			config: &Config{
+				Locations: []location{{Path: "/s", Root: "/r"}},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -132,6 +147,24 @@ func TestConfigValidate(t *testing.T) {
 				t.Errorf("validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestUploadMaxBytes(t *testing.T) {
+	tests := []struct {
+		maxSizeMB int
+		want      int64
+	}{
+		{1, 1 << 20},
+		{defaultUploadMaxSize, defaultUploadMaxSize << 20},
+		{0, defaultUploadMaxSize << 20},
+		{-1, defaultUploadMaxSize << 20},
+	}
+	for _, tt := range tests {
+		c := &Config{UploadMaxSize: tt.maxSizeMB}
+		if got := c.UploadMaxBytes(); got != tt.want {
+			t.Errorf("UploadMaxBytes() = %d, want %d", got, tt.want)
+		}
 	}
 }
 

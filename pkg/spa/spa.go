@@ -23,6 +23,7 @@ type options struct {
 	is404ToHome          bool
 	cacheMaxAge          int
 	enableListFiles      bool
+	uploadMaxSize        int64
 	injectFileContentMap map[string][]func(content []byte) []byte
 }
 
@@ -31,6 +32,7 @@ func defaultOptions() *options {
 		is404ToHome:     true,
 		enableListFiles: false,
 		cacheMaxAge:     0,
+		uploadMaxSize:   defaultUploadMaxSize,
 	}
 }
 
@@ -62,6 +64,17 @@ func WithCacheMaxAge(seconds int) Option {
 			seconds = 0
 		}
 		o.cacheMaxAge = seconds
+	}
+}
+
+// WithUploadMaxSize caps the size of a single uploaded file and of the whole upload
+// request body, in bytes, values <= 0 remove the size check. It only tunes the
+// 'POST <basePath>/upload' API, which every location serves: local directories store
+// the files in '<localDir>/data', an embed.FS location in the 'data' directory of the
+// executable, because the embedded files themselves are read-only.
+func WithUploadMaxSize(maxBytes int64) Option {
+	return func(o *options) {
+		o.uploadMaxSize = maxBytes
 	}
 }
 
@@ -120,6 +133,12 @@ type Server struct {
 	// enable list files, default is false
 	enableListFiles bool
 
+	// maximum size in bytes of an uploaded file and of the upload request body
+	uploadMaxSize int64
+
+	// directory the uploaded files are written to, e.g. /var/www/assets/data
+	uploadDir string
+
 	// static file cache seconds, 0 means disable cache
 	cacheMaxAge int
 
@@ -139,6 +158,8 @@ func NewLocal(basePath string, localDir string, opts ...Option) (*Server, error)
 		injectFileContentMap: o.injectFileContentMap,
 		is404ToHome:          o.is404ToHome,
 		enableListFiles:      o.enableListFiles,
+		uploadMaxSize:        o.uploadMaxSize,
+		uploadDir:            filepath.Join(localDir, uploadDirName),
 		cacheMaxAge:          o.cacheMaxAge,
 		enableGzip:           isWritable(localDir),
 	}, nil
@@ -159,6 +180,12 @@ func NewEmbedFS(basePath string, embedFS embed.FS, opts ...Option) (*Server, err
 	if localDir == "" {
 		return nil, errors.New("empty directory retrieved from embedFS")
 	}
+	// the embedded files are read-only, so an embed.FS location stores what it receives
+	// in the 'data' directory placed next to the executable
+	uploadDir, err := binaryUploadDir()
+	if err != nil {
+		return nil, err
+	}
 
 	return &Server{
 		localDir:             localDir,
@@ -168,6 +195,8 @@ func NewEmbedFS(basePath string, embedFS embed.FS, opts ...Option) (*Server, err
 		injectFileContentMap: o.injectFileContentMap,
 		is404ToHome:          o.is404ToHome,
 		enableListFiles:      o.enableListFiles,
+		uploadMaxSize:        o.uploadMaxSize,
+		uploadDir:            uploadDir,
 		cacheMaxAge:          o.cacheMaxAge,
 	}, nil
 }
@@ -176,14 +205,17 @@ func NewEmbedFS(basePath string, embedFS embed.FS, opts ...Option) (*Server, err
 func (s *Server) Register(h *server.Hertz) error {
 	if s.isUseEmbedFS {
 		if s.injectFileContentMap == nil {
-			return s.embedFSRegister(h)
+			if err := s.embedFSRegister(h); err != nil {
+				return err
+			}
+			return s.fileAPIRegister(h)
 		}
 		if err := s.saveFSToLocal(); err != nil {
 			return fmt.Errorf("save embed fs to local error: %w", err)
 		}
 	}
 	s.localRegister(h)
-	return nil
+	return s.fileAPIRegister(h)
 }
 
 func (s *Server) localRegister(h *server.Hertz) {
@@ -205,6 +237,15 @@ func (s *Server) localRegister(h *server.Hertz) {
 	relativePath := bp + "/*filepath"
 	handlerFunc := func(ctx context.Context, c *app.RequestContext) {
 		filePath := c.Param("filepath")
+
+		// an uploaded file is served by a plain read rather than by the static file handler
+		// below: on windows that one keeps the file handle open for a while, which would make
+		// the delete API fail on a file that was just read. An embed.FS location additionally
+		// keeps its uploads next to the binary, outside of the extracted static files.
+		if s.serveUploadedFile(c, strings.TrimPrefix(filePath, "/")) {
+			return
+		}
+
 		fullPath := filepath.Join(s.localDir, filepath.Clean(filePath))
 
 		if !s.enableGzip {
@@ -253,6 +294,11 @@ func (s *Server) embedFSRegister(h *server.Hertz) error {
 			filePath = "index.html"
 		}
 
+		// uploaded files are stored on disk, they cannot be part of the embedded resources
+		if s.serveUploadedFile(c, filePath) {
+			return
+		}
+
 		status := checkAllowListFilesFS(subFS, filePath, s.enableListFiles)
 		if status > 0 {
 			c.SetStatusCode(status)
@@ -288,6 +334,22 @@ func (s *Server) GetBasePath() string {
 // GetLocalDir returns the local directory path.
 func (s *Server) GetLocalDir() string {
 	return s.localDir
+}
+
+// GetUploadRoute returns the URL path of the upload API, e.g. '/docs/upload'.
+func (s *Server) GetUploadRoute() string {
+	return uploadRoute(s.basePath)
+}
+
+// GetDeleteRoute returns the URL pattern of the delete API in its documented form,
+// e.g. '/docs/delete/<filename>'.
+func (s *Server) GetDeleteRoute() string {
+	return deleteRoutePrefix(s.basePath) + "/<" + deleteFileParam + ">"
+}
+
+// GetUploadDir returns the directory the uploaded files are stored in.
+func (s *Server) GetUploadDir() string {
+	return s.uploadDir
 }
 
 // --- Helper functions (mostly unchanged logic, adapted for Hertz) ---

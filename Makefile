@@ -5,9 +5,9 @@ PKG := "$(PROJECT_NAME)"
 PKG_LIST := $(shell go list ${PKG}/... | grep -v /vendor/ | grep -v /api/ | grep -v /cmd/)
 
 
-.PHONY: ci-lint
+.PHONY: lint
 # Run golangci-lint to check code formatting, naming, security, and maintainability.
-ci-lint:
+lint:
 	@golangci-lint fmt ./...
 	@golangci-lint run ./...
 
